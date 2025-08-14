@@ -1,0 +1,665 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5E1FFEDA2E4F2AE100F002CB /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1FFED92E4F2AE100F002CB /* MLX */; };
+		5E1FFEDC2E4F2AE100F002CB /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1FFEDB2E4F2AE100F002CB /* MLXNN */; };
+		5E1FFEDE2E4F2AE100F002CB /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1FFEDD2E4F2AE100F002CB /* MLXLLM */; };
+		5E1FFEE02E4F2AE100F002CB /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1FFEDF2E4F2AE100F002CB /* MLXLMCommon */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5E1FFEBA2E4E9AD600F002CB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E1FFE9E2E4E9AD400F002CB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E1FFEA52E4E9AD400F002CB;
+			remoteInfo = eunoia;
+		};
+		5E1FFEC42E4E9AD600F002CB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E1FFE9E2E4E9AD400F002CB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E1FFEA52E4E9AD400F002CB;
+			remoteInfo = eunoia;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		5E1FFEA62E4E9AD400F002CB /* eunoia.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = eunoia.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E1FFEB92E4E9AD600F002CB /* eunoiaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = eunoiaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E1FFEC32E4E9AD600F002CB /* eunoiaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = eunoiaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5E1FFEA82E4E9AD400F002CB /* eunoia */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = eunoia;
+			sourceTree = "<group>";
+		};
+		5E1FFEBC2E4E9AD600F002CB /* eunoiaTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = eunoiaTests;
+			sourceTree = "<group>";
+		};
+		5E1FFEC62E4E9AD600F002CB /* eunoiaUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = eunoiaUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5E1FFEA32E4E9AD400F002CB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E1FFEDE2E4F2AE100F002CB /* MLXLLM in Frameworks */,
+				5E1FFEDC2E4F2AE100F002CB /* MLXNN in Frameworks */,
+				5E1FFEE02E4F2AE100F002CB /* MLXLMCommon in Frameworks */,
+				5E1FFEDA2E4F2AE100F002CB /* MLX in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1FFEB62E4E9AD600F002CB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1FFEC02E4E9AD600F002CB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5E1FFE9D2E4E9AD400F002CB = {
+			isa = PBXGroup;
+			children = (
+				5E1FFEA82E4E9AD400F002CB /* eunoia */,
+				5E1FFEBC2E4E9AD600F002CB /* eunoiaTests */,
+				5E1FFEC62E4E9AD600F002CB /* eunoiaUITests */,
+				5E1FFED82E4F2AE000F002CB /* Frameworks */,
+				5E1FFEA72E4E9AD400F002CB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5E1FFEA72E4E9AD400F002CB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5E1FFEA62E4E9AD400F002CB /* eunoia.app */,
+				5E1FFEB92E4E9AD600F002CB /* eunoiaTests.xctest */,
+				5E1FFEC32E4E9AD600F002CB /* eunoiaUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5E1FFED82E4F2AE000F002CB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5E1FFEA52E4E9AD400F002CB /* eunoia */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E1FFECD2E4E9AD600F002CB /* Build configuration list for PBXNativeTarget "eunoia" */;
+			buildPhases = (
+				5E1FFEA22E4E9AD400F002CB /* Sources */,
+				5E1FFEA32E4E9AD400F002CB /* Frameworks */,
+				5E1FFEA42E4E9AD400F002CB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5E1FFEA82E4E9AD400F002CB /* eunoia */,
+			);
+			name = eunoia;
+			packageProductDependencies = (
+				5E1FFED92E4F2AE100F002CB /* MLX */,
+				5E1FFEDB2E4F2AE100F002CB /* MLXNN */,
+				5E1FFEDD2E4F2AE100F002CB /* MLXLLM */,
+				5E1FFEDF2E4F2AE100F002CB /* MLXLMCommon */,
+			);
+			productName = eunoia;
+			productReference = 5E1FFEA62E4E9AD400F002CB /* eunoia.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5E1FFEB82E4E9AD600F002CB /* eunoiaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E1FFED02E4E9AD600F002CB /* Build configuration list for PBXNativeTarget "eunoiaTests" */;
+			buildPhases = (
+				5E1FFEB52E4E9AD600F002CB /* Sources */,
+				5E1FFEB62E4E9AD600F002CB /* Frameworks */,
+				5E1FFEB72E4E9AD600F002CB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5E1FFEBB2E4E9AD600F002CB /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5E1FFEBC2E4E9AD600F002CB /* eunoiaTests */,
+			);
+			name = eunoiaTests;
+			packageProductDependencies = (
+			);
+			productName = eunoiaTests;
+			productReference = 5E1FFEB92E4E9AD600F002CB /* eunoiaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		5E1FFEC22E4E9AD600F002CB /* eunoiaUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E1FFED32E4E9AD600F002CB /* Build configuration list for PBXNativeTarget "eunoiaUITests" */;
+			buildPhases = (
+				5E1FFEBF2E4E9AD600F002CB /* Sources */,
+				5E1FFEC02E4E9AD600F002CB /* Frameworks */,
+				5E1FFEC12E4E9AD600F002CB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5E1FFEC52E4E9AD600F002CB /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5E1FFEC62E4E9AD600F002CB /* eunoiaUITests */,
+			);
+			name = eunoiaUITests;
+			packageProductDependencies = (
+			);
+			productName = eunoiaUITests;
+			productReference = 5E1FFEC32E4E9AD600F002CB /* eunoiaUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5E1FFE9E2E4E9AD400F002CB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					5E1FFEA52E4E9AD400F002CB = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					5E1FFEB82E4E9AD600F002CB = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 5E1FFEA52E4E9AD400F002CB;
+					};
+					5E1FFEC22E4E9AD600F002CB = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 5E1FFEA52E4E9AD400F002CB;
+					};
+				};
+			};
+			buildConfigurationList = 5E1FFEA12E4E9AD400F002CB /* Build configuration list for PBXProject "eunoia" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5E1FFE9D2E4E9AD400F002CB;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5E1FFED62E4F2A8000F002CB /* XCRemoteSwiftPackageReference "mlx-swift" */,
+				5E1FFED72E4F2A9A00F002CB /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5E1FFEA72E4E9AD400F002CB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5E1FFEA52E4E9AD400F002CB /* eunoia */,
+				5E1FFEB82E4E9AD600F002CB /* eunoiaTests */,
+				5E1FFEC22E4E9AD600F002CB /* eunoiaUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5E1FFEA42E4E9AD400F002CB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1FFEB72E4E9AD600F002CB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1FFEC12E4E9AD600F002CB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5E1FFEA22E4E9AD400F002CB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1FFEB52E4E9AD600F002CB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1FFEBF2E4E9AD600F002CB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5E1FFEBB2E4E9AD600F002CB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E1FFEA52E4E9AD400F002CB /* eunoia */;
+			targetProxy = 5E1FFEBA2E4E9AD600F002CB /* PBXContainerItemProxy */;
+		};
+		5E1FFEC52E4E9AD600F002CB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E1FFEA52E4E9AD400F002CB /* eunoia */;
+			targetProxy = 5E1FFEC42E4E9AD600F002CB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		5E1FFECB2E4E9AD600F002CB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		5E1FFECC2E4E9AD600F002CB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		5E1FFECE2E4E9AD600F002CB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = eunoia/eunoia.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"eunoia/Preview Content\"";
+				DEVELOPMENT_TEAM = KWHA6SN2GV;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aeden.eunoia;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Debug;
+		};
+		5E1FFECF2E4E9AD600F002CB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = eunoia/eunoia.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"eunoia/Preview Content\"";
+				DEVELOPMENT_TEAM = KWHA6SN2GV;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aeden.eunoia;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Release;
+		};
+		5E1FFED12E4E9AD600F002CB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KWHA6SN2GV;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aeden.eunoiaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/eunoia.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/eunoia";
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Debug;
+		};
+		5E1FFED22E4E9AD600F002CB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KWHA6SN2GV;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aeden.eunoiaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/eunoia.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/eunoia";
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Release;
+		};
+		5E1FFED42E4E9AD600F002CB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KWHA6SN2GV;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aeden.eunoiaUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = eunoia;
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Debug;
+		};
+		5E1FFED52E4E9AD600F002CB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KWHA6SN2GV;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aeden.eunoiaUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = eunoia;
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5E1FFEA12E4E9AD400F002CB /* Build configuration list for PBXProject "eunoia" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1FFECB2E4E9AD600F002CB /* Debug */,
+				5E1FFECC2E4E9AD600F002CB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E1FFECD2E4E9AD600F002CB /* Build configuration list for PBXNativeTarget "eunoia" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1FFECE2E4E9AD600F002CB /* Debug */,
+				5E1FFECF2E4E9AD600F002CB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E1FFED02E4E9AD600F002CB /* Build configuration list for PBXNativeTarget "eunoiaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1FFED12E4E9AD600F002CB /* Debug */,
+				5E1FFED22E4E9AD600F002CB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E1FFED32E4E9AD600F002CB /* Build configuration list for PBXNativeTarget "eunoiaUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1FFED42E4E9AD600F002CB /* Debug */,
+				5E1FFED52E4E9AD600F002CB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		5E1FFED62E4F2A8000F002CB /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.25.6;
+			};
+		};
+		5E1FFED72E4F2A9A00F002CB /* XCRemoteSwiftPackageReference "mlx-swift-examples" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-examples.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.25.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5E1FFED92E4F2AE100F002CB /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E1FFED62E4F2A8000F002CB /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
+		};
+		5E1FFEDB2E4F2AE100F002CB /* MLXNN */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E1FFED62E4F2A8000F002CB /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXNN;
+		};
+		5E1FFEDD2E4F2AE100F002CB /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E1FFED72E4F2A9A00F002CB /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			productName = MLXLLM;
+		};
+		5E1FFEDF2E4F2AE100F002CB /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E1FFED72E4F2A9A00F002CB /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			productName = MLXLMCommon;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 5E1FFE9E2E4E9AD400F002CB /* Project object */;
+}
