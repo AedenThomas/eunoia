@@ -121,39 +121,72 @@ class ModelDownloadManager: ObservableObject {
         }
         
         do {
-            // Download MLX-community model files from HuggingFace
-            print("[DOWNLOAD DEBUG] Calling hub.snapshot() for \(model.identifier)...")
-            let claimedPath = try await hub.snapshot(from: model.identifier, matching: [".safetensors", ".json", ".txt"])
+            // Try using HubApi with specific repo and progress tracking like successful examples
+            print("[DOWNLOAD DEBUG] Attempting enhanced Hub download approach...")
+            print("[DOWNLOAD DEBUG] Model identifier: \(model.identifier)")
+            
+            // Create Hub.Repo object as shown in swift-transformers examples
+            let repo = Hub.Repo(id: model.identifier)
+            
+            // Use enhanced matching patterns
+            let filesToDownload = ["config.json", "*.safetensors", "tokenizer.json", "*.json", "*.txt"]
+            
+            // Download with progress handler
+            print("[DOWNLOAD DEBUG] Calling Hub.snapshot() with enhanced parameters...")
+            let claimedPath = try await Hub.snapshot(
+                from: repo,
+                matching: filesToDownload,
+                progressHandler: { progress in
+                    Task { @MainActor in
+                        self.downloadProgress[model.identifier] = progress.fractionCompleted
+                    }
+                }
+            )
             print("[DOWNLOAD DEBUG] ✅ Hub download successful! Claimed path: \(claimedPath.path)")
             
             progressTask.cancel()
             
-            // The Hub API returns the wrong path - files are actually in Caches directory
-            let cachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            var actualSourceURL = cachesDirectory.appendingPathComponent("models").appendingPathComponent(model.identifier)
+            // First verify if files actually exist at the claimed path
+            print("[DOWNLOAD DEBUG] Verifying files at claimed path: \(claimedPath.path)")
+            var actualSourceURL: URL? = nil
             
-            print("[DOWNLOAD DEBUG] Hub API claimed path: \(claimedPath.path)")
-            print("[DOWNLOAD DEBUG] Actual cache location: \(actualSourceURL.path)")
+            if FileManager.default.fileExists(atPath: claimedPath.path) {
+                do {
+                    let contents = try FileManager.default.contentsOfDirectory(at: claimedPath, includingPropertiesForKeys: nil)
+                    let hasSafetensors = contents.contains { $0.pathExtension.lowercased() == "safetensors" }
+                    let hasConfig = contents.contains { $0.lastPathComponent.lowercased().contains("config") }
+                    
+                    if hasSafetensors || hasConfig {
+                        print("[DOWNLOAD DEBUG] ✅ Found model files at claimed path!")
+                        actualSourceURL = claimedPath
+                    } else {
+                        print("[DOWNLOAD DEBUG] ❌ Claimed path exists but no model files found")
+                    }
+                } catch {
+                    print("[DOWNLOAD DEBUG] ❌ Error checking claimed path: \(error)")
+                }
+            } else {
+                print("[DOWNLOAD DEBUG] ❌ Claimed path does not exist")
+            }
             
-            // Check if the actual cache directory exists
-            if !FileManager.default.fileExists(atPath: actualSourceURL.path) {
-                print("[DOWNLOAD DEBUG] ❌ Primary cache location does not exist: \(actualSourceURL.path)")
+            // If not found at claimed path, search in known cache patterns
+            if actualSourceURL == nil {
+                print("[DOWNLOAD DEBUG] Searching for files in known cache locations...")
+                let cachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
                 
-                // Try alternative cache locations
                 let alternativeLocations = [
+                    // Known working pattern from existing models
+                    cachesDirectory.appendingPathComponent("models").appendingPathComponent(model.identifier),
+                    
                     // Standard HuggingFace cache patterns
                     cachesDirectory.appendingPathComponent("huggingface").appendingPathComponent("hub").appendingPathComponent("models--\(model.identifier.replacingOccurrences(of: "/", with: "--"))"),
                     cachesDirectory.appendingPathComponent("huggingface").appendingPathComponent("models").appendingPathComponent(model.identifier),
-                    
-                    // Check if files are in Documents as claimed
-                    claimedPath,
                     
                     // Check temp locations
                     URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("models").appendingPathComponent(model.identifier),
                     URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("huggingface").appendingPathComponent("models").appendingPathComponent(model.identifier)
                 ]
                 
-                var foundLocation: URL?
                 for location in alternativeLocations {
                     print("[DOWNLOAD DEBUG] Checking alternative location: \(location.path)")
                     if FileManager.default.fileExists(atPath: location.path) {
@@ -164,7 +197,7 @@ class ModelDownloadManager: ObservableObject {
                             
                             if hasSafetensors || hasConfig {
                                 print("[DOWNLOAD DEBUG] ✅ Found model files at alternative location: \(location.path)")
-                                foundLocation = location
+                                actualSourceURL = location
                                 break
                             } else {
                                 print("[DOWNLOAD DEBUG] Location exists but no model files found")
@@ -174,36 +207,41 @@ class ModelDownloadManager: ObservableObject {
                         }
                     }
                 }
-                
-                guard let actualLocation = foundLocation else {
-                    print("[DOWNLOAD DEBUG] ❌ Model files not found in any expected location")
-                    
-                    // Do comprehensive scan of cache directories
-                    print("[DOWNLOAD DEBUG] Performing comprehensive cache scan...")
-                    let cachesToScan = [
-                        cachesDirectory,
-                        documentsDirectory,
-                        URL(fileURLWithPath: NSTemporaryDirectory())
-                    ]
-                    
-                    for cacheRoot in cachesToScan {
-                        print("[DOWNLOAD DEBUG] Scanning \(cacheRoot.lastPathComponent): \(cacheRoot.path)")
-                        scanForModelFiles(in: cacheRoot, modelId: model.identifier, maxDepth: 4)
-                    }
-                    
-                    throw NSError(domain: "ModelDownload", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "Model files not found in any cache location after comprehensive search"
-                    ])
-                }
-                
-                // Update actualSourceURL to the found location
-                actualSourceURL = actualLocation
-                print("[DOWNLOAD DEBUG] Using alternative cache location: \(actualSourceURL.path)")
             }
             
-            // Copy files from the actual cache location to our models directory  
-            print("[DOWNLOAD DEBUG] Final source location: \(actualSourceURL.path)")
-            let sourceFiles = try FileManager.default.contentsOfDirectory(at: actualSourceURL, includingPropertiesForKeys: nil)
+            // Final fallback: comprehensive search if not found yet
+            if actualSourceURL == nil {
+                print("[DOWNLOAD DEBUG] ❌ Model files not found in any expected location")
+                print("[DOWNLOAD DEBUG] Hub.snapshot() claimed success but files are missing - this appears to be a Hub framework bug")
+                
+                // Do comprehensive scan to see if files ended up anywhere unexpected
+                print("[DOWNLOAD DEBUG] Performing comprehensive cache scan...")
+                let cachesToScan = [
+                    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!,
+                    documentsDirectory,
+                    URL(fileURLWithPath: NSTemporaryDirectory())
+                ]
+                
+                for cacheRoot in cachesToScan {
+                    print("[DOWNLOAD DEBUG] Scanning \(cacheRoot.lastPathComponent): \(cacheRoot.path)")
+                    if let found = scanForModelFiles(in: cacheRoot, modelId: model.identifier, maxDepth: 4) {
+                        actualSourceURL = found
+                        print("[DOWNLOAD DEBUG] ✅ Found files during comprehensive scan: \(found.path)")
+                        break
+                    }
+                }
+            }
+            
+            // Final check - throw error if still not found
+            guard let finalSourceURL = actualSourceURL else {
+                throw NSError(domain: "ModelDownload", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Hub.snapshot() reported success but model files not found anywhere. This appears to be a Hub framework issue with sandboxed macOS apps."
+                ])
+            }
+            print("[DOWNLOAD DEBUG] Using source location: \(finalSourceURL.path)")
+            
+            // Copy files from the found cache location to our models directory  
+            let sourceFiles = try FileManager.default.contentsOfDirectory(at: finalSourceURL, includingPropertiesForKeys: nil)
             print("[DOWNLOAD DEBUG] Found \(sourceFiles.count) files in cache directory:")
             for file in sourceFiles {
                 print("[DOWNLOAD DEBUG]   - \(file.lastPathComponent) (\(file.hasDirectoryPath ? "directory" : "file"))")
@@ -342,8 +380,8 @@ class ModelDownloadManager: ObservableObject {
         return modelDirectory
     }
     
-    private func scanForModelFiles(in directory: URL, modelId: String, maxDepth: Int) {
-        guard maxDepth > 0 else { return }
+    private func scanForModelFiles(in directory: URL, modelId: String, maxDepth: Int) -> URL? {
+        guard maxDepth > 0 else { return nil }
         
         do {
             let contents = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey])
@@ -365,17 +403,22 @@ class ModelDownloadManager: ObservableObject {
                                 print("[DOWNLOAD DEBUG]   - \(file.lastPathComponent)")
                             }
                         }
+                        return item // Return the found location
                     }
                     
                     // Continue recursive search
                     if maxDepth > 1 {
-                        scanForModelFiles(in: item, modelId: modelId, maxDepth: maxDepth - 1)
+                        if let found = scanForModelFiles(in: item, modelId: modelId, maxDepth: maxDepth - 1) {
+                            return found
+                        }
                     }
                 }
             }
         } catch {
             // Silently continue - many directories may not be accessible
         }
+        
+        return nil
     }
     
     func pauseDownload(for model: MLXModel) {

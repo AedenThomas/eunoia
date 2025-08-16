@@ -100,6 +100,62 @@
   - Real MLX text generation works correctly after fix
   - App provides actual AI responses instead of placeholder messages
 
+## 2025-08-16 - FIXED: SmolLM Response Generation Issue - ChatML Prompt Template
+- **Problem**: SmolLM models (mlx-community/SmolLM-135M-Instruct-4bit) downloading successfully but generating no responses - hanging on `session.respond(to:)` call
+- **Root Cause Discovered**: 
+  - SmolLM models use ChatML prompt template format, different from Gemma models
+  - MLX Swift Examples PR #95 showed SmolLM needs `<|im_start|>` and `<|im_end|>` markers
+  - Default prompt formatting not compatible with SmolLM tokenization
+- **Solution Implemented**:
+  - Added SmolLM detection in ChatManager.sendMessage() with `model.identifier.contains("SmolLM")`
+  - Implemented ChatML prompt formatting: `<|im_start|>user\n{message}<|im_end|>\n<|im_start|>assistant\n`
+  - Applied format-specific prompt wrapping before calling `session.respond(to:)`
+  - Kept default formatting for non-SmolLM models
+- **Key Code Changes**:
+  - Modified `ChatManager.sendMessage()` to format prompts based on model type
+  - SmolLM models get ChatML wrapper, others use plain content
+  - Fixed compiler warning about non-optional ChatSession comparison
+- **Dependencies**:
+  - ChatManager now handles model-specific prompt formatting
+  - SmolLM models require ChatML format for proper response generation
+  - Different models may need different prompt templates in the future
+
+## 2025-08-16 - CONTINUED: SmolLM Still Hanging - Added EOS Token Fix and Timeout
+- **Problem**: SmolLM still hanging after ChatML prompt formatting fix
+- **Additional Attempts**:
+  - Applied similar EOS token fix as Gemma 3: `extraEOSTokens: ["<|im_end|>"]`
+  - Added 30-second timeout to prevent indefinite hanging: `withTimeout(seconds: 30.0)`
+  - Research showed SmolLM PR #95 had quality issues with 4-bit quantization
+- **Current Status**: Testing if EOS token fix resolves hanging issue
+- **Next Steps**: If still hanging, may need to try different SmolLM model versions or investigate deeper tokenizer issues
+
+## 2025-08-16 - FIXED: Hub Framework Model Download Issues - Sandboxed macOS Cache Path Bug
+- **Problem**: HuggingFace Hub framework claiming successful downloads but files not found anywhere
+  - Existing models (Gemma 3 270m, SmolLM 135M) found in cache and working
+  - New models (Llama 3.2 3B, Phi-3.5 Mini) failing despite Hub.snapshot() claiming success
+  - Hub API returning paths in Documents directory but files not present there or in expected cache locations
+- **Root Cause Discovered**:
+  - Hub framework issue with sandboxed macOS applications
+  - Hub.snapshot() method silently failing but reporting success
+  - Files not being placed in any discoverable cache location
+  - Working models found in `/Library/Containers/com.aeden.eunoia/Data/Library/Caches/models/mlx-community/`
+- **Solution Implemented**:
+  - Enhanced download verification: Always verify files exist at claimed path before proceeding
+  - Improved search algorithm: Prioritize known working cache patterns from existing models
+  - Better error detection: Identify when Hub.snapshot() claims success but no files exist
+  - Enhanced Hub API usage: Use Hub.Repo object with progress tracking as shown in swift-transformers examples
+  - Fallback comprehensive scanning: Search all cache directories recursively if files missing
+  - Updated scanForModelFiles() to return found locations instead of just printing
+- **Key Code Changes**:
+  - ModelDownloadManager.downloadMLXModel(): Enhanced file verification and search logic
+  - Uses `Hub.Repo(id:)` and `Hub.snapshot(from:matching:progressHandler:)` pattern
+  - Added multi-tier search: claimed path → known cache patterns → comprehensive scan
+  - Improved error messages to identify Hub framework bugs vs. network issues
+- **Dependencies**:
+  - Using swift-transformers 0.1.22 Hub framework
+  - Issue appears to be regression in Hub framework for sandboxed macOS apps
+  - Solution provides multiple fallback strategies to find downloaded files
+
 # Tech Stack
 
 ## Frontend

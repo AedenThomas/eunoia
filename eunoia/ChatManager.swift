@@ -62,6 +62,13 @@ class ChatManager: ObservableObject {
                     id: model.identifier,
                     extraEOSTokens: ["<end_of_turn>"]
                 )
+            } else if model.identifier.contains("SmolLM") {
+                // SmolLM might need EOS token fixes similar to Gemma 3
+                print("DEBUG: Applying SmolLM fix with ChatML EOS tokens")
+                modelConfig = ModelConfiguration(
+                    id: model.identifier,
+                    extraEOSTokens: ["<|im_end|>"]
+                )
             } else {
                 // Use default configuration for other models
                 modelConfig = ModelConfiguration(id: model.identifier)
@@ -122,7 +129,7 @@ class ChatManager: ObservableObject {
             do {
                 print("DEBUG: Starting MLX text generation...")
                 print("DEBUG: Model identifier: \(selectedModel.identifier)")
-                print("DEBUG: ChatSession exists: \(session != nil)")
+                print("DEBUG: ChatSession exists: true")
                 
                 // Try a simple test first - see if the model can do basic operations
                 let testArray = MLXArray([1.0, 2.0, 3.0])
@@ -130,7 +137,22 @@ class ChatManager: ObservableObject {
                 
                 // Use ChatSession to generate response - fixed with proper ModelConfiguration
                 print("DEBUG: About to call session.respond(to:)")
-                let response = try await session.respond(to: content)
+                
+                // Format the prompt according to model requirements
+                let formattedPrompt: String
+                if selectedModel.identifier.contains("SmolLM") {
+                    // SmolLM uses ChatML format with <|im_start|> and <|im_end|> tokens
+                    formattedPrompt = "<|im_start|>user\n\(content)<|im_end|>\n<|im_start|>assistant\n"
+                    print("DEBUG: SmolLM formatted prompt: \(formattedPrompt)")
+                } else {
+                    // Use default formatting for other models
+                    formattedPrompt = content
+                }
+                
+                // Add timeout to prevent indefinite hanging
+                let response = try await withTimeout(seconds: 30.0) {
+                    return try await session.respond(to: formattedPrompt)
+                }
                 
                 print("DEBUG: MLX generation completed, response: '\(response)'")
                 
