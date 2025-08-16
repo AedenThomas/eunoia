@@ -4,12 +4,13 @@ struct ChatView: View {
     @State private var messageText = ""
     @StateObject private var chatManager = ChatManager()
     @ObservedObject private var downloadManager = ModelDownloadManager.shared
-    @State private var showingModelPicker = false
     @FocusState private var isTextFieldFocused: Bool
     
     var body: some View {
-        NavigationStack {
+        ZStack {
             VStack(spacing: 0) {
+                ModelSelectorBar(chatManager: chatManager, downloadManager: downloadManager)
+                
                 if chatManager.messages.isEmpty {
                     Spacer()
                     emptyStateView
@@ -20,50 +21,12 @@ struct ChatView: View {
                 
                 inputArea
             }
-            .background(.regularMaterial.opacity(0.1))
-            .navigationTitle("Chat")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
-            .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingModelPicker = true }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "brain")
-                            if let selectedModel = chatManager.selectedModel {
-                                Text(selectedModel.name)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                            } else {
-                                Text("Select Model")
-                                    .font(.caption)
-                            }
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                }
-#else
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: { showingModelPicker = true }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "brain")
-                            if let selectedModel = chatManager.selectedModel {
-                                Text(selectedModel.name)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                            } else {
-                                Text("Select Model")
-                                    .font(.caption)
-                            }
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                }
-#endif
-            }
-            .sheet(isPresented: $showingModelPicker) {
-                ModelPickerView(chatManager: chatManager, downloadManager: downloadManager)
+            .background(Color(.controlBackgroundColor))
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            
+            // Full screen loading overlay
+            if chatManager.isLoadingModel {
+                modelLoadingOverlay
             }
         }
     }
@@ -71,18 +34,17 @@ struct ChatView: View {
     private var emptyStateView: some View {
         VStack(spacing: 24) {
             Image(systemName: "message")
-                .font(.system(size: 64, weight: .ultraLight))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 64, weight: .ultraLight, design: .default))
+                .foregroundColor(.gray.opacity(0.5))
             
             VStack(spacing: 12) {
                 Text("Start a Conversation")
-                    .font(.title2)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.primary)
+                    .font(.system(.title2, design: .default, weight: .medium))
+                    .foregroundColor(Color.primary)
                 
-                Text("Download a model from the Models tab to begin chatting")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Text("Download a model to begin chatting")
+                    .font(.system(.subheadline, design: .default, weight: .regular))
+                    .foregroundColor(Color.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
             }
@@ -103,20 +65,20 @@ struct ChatView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .secondary))
+                                    .progressViewStyle(CircularProgressViewStyle(tint: Color.secondary))
                                     .scaleEffect(0.8)
                                 
                                 Text("Generating...")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(.subheadline, design: .default, weight: .regular))
+                                    .foregroundColor(Color.secondary)
                                 
                                 Spacer()
                                 
                                 Button("Stop") {
                                     chatManager.stopGeneration()
                                 }
-                                .font(.caption)
-                                .foregroundStyle(.red)
+                                .font(.system(.caption, design: .default, weight: .medium))
+                                .foregroundColor(.red)
                             }
                             
                             if !chatManager.currentResponse.isEmpty {
@@ -124,7 +86,7 @@ struct ChatView: View {
                                     .opacity(0.8)
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 20)
                         .padding(.vertical, 8)
                     }
                 }
@@ -142,45 +104,85 @@ struct ChatView: View {
     }
     
     private var inputArea: some View {
-        VStack(spacing: 0) {
-            Divider()
-                .opacity(0.3)
-            
-            HStack(alignment: .bottom, spacing: 12) {
-                TextField("Message", text: $messageText, axis: .vertical)
+        HStack(spacing: 12) {
+            HStack {
+                TextField("Message", text: $messageText)
                     .textFieldStyle(.plain)
-                    .font(.body)
-                    .lineLimit(1...6)
+                    .font(.system(.body, design: .default, weight: .regular))
                     .focused($isTextFieldFocused)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .background {
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(.regularMaterial)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .strokeBorder(.separator.opacity(0.2), lineWidth: 0.5)
-                            }
+                    .onSubmit {
+                        sendMessage()
                     }
                 
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.white)
-                        .background {
-                            Circle()
-                                .fill(Color.accentColor)
-                        }
+                if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Color(hex: 0x007AFF))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.scale.combined(with: .opacity))
+                    .animation(.easeOut(duration: 0.2), value: messageText.isEmpty)
                 }
-                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
-                .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.9 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: messageText.isEmpty)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.regularMaterial)
+            .background(Color(.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .strokeBorder(
+                        isTextFieldFocused ? Color(hex: 0x007AFF) : Color.gray.opacity(0.3),
+                        lineWidth: isTextFieldFocused ? 2 : 1
+                    )
+                    .animation(.easeOut(duration: 0.2), value: isTextFieldFocused)
+            )
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Color(.controlBackgroundColor))
+    }
+    
+    private var modelLoadingOverlay: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            
+            // Loading content
+            VStack(spacing: 24) {
+                // Animated loading indicator
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: Color(hex: 0x007AFF)))
+                    .scaleEffect(1.5)
+                
+                VStack(spacing: 8) {
+                    Text("Loading Model")
+                        .font(.system(.title2, design: .default, weight: .medium))
+                        .foregroundColor(.primary)
+                    
+                    if let selectedModel = chatManager.selectedModel {
+                        Text(selectedModel.name)
+                            .font(.system(.body, design: .default, weight: .regular))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Text("This may take a few moments...")
+                        .font(.system(.subheadline, design: .default, weight: .regular))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(40)
+            .background(Color(.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.primary.opacity(0.1), radius: 20, x: 0, y: 10)
+        }
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.3), value: chatManager.isLoadingModel)
     }
     
     private func sendMessage() {
@@ -192,11 +194,26 @@ struct ChatView: View {
     }
 }
 
-struct ChatMessage: Identifiable, Equatable {
-    let id = UUID()
+struct ChatMessage: Identifiable, Equatable, Codable {
+    let id: UUID
     let content: String
     let isUser: Bool
-    let timestamp = Date()
+    let timestamp: Date
+    
+    init(content: String, isUser: Bool) {
+        self.id = UUID()
+        self.content = content
+        self.isUser = isUser
+        self.timestamp = Date()
+    }
+    
+    // Custom initializer for decoding from JSON
+    init(id: UUID, content: String, isUser: Bool, timestamp: Date) {
+        self.id = id
+        self.content = content
+        self.isUser = isUser
+        self.timestamp = timestamp
+    }
     
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id
@@ -213,20 +230,20 @@ struct ChatBubbleView: View {
             }
             
             Text(message.content)
-                .font(.body)
-                .foregroundStyle(message.isUser ? .white : .primary)
+                .font(.system(.body, design: .default, weight: .regular))
+                .foregroundColor(message.isUser ? .white : .primary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(message.isUser ? Color.accentColor : Color.clear)
-                        .background(.regularMaterial)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(message.isUser ? Color.gray : Color(.controlBackgroundColor))
                         .overlay {
                             if !message.isUser {
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .strokeBorder(.separator.opacity(0.2), lineWidth: 0.5)
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
                             }
                         }
+                        .shadow(color: Color.primary.opacity(0.05), radius: 1, x: 0, y: 1)
                 }
             
             if !message.isUser {

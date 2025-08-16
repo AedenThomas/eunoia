@@ -29,9 +29,14 @@ struct TimeoutError: Error {
 class ChatManager: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isGenerating = false
+    @Published var isLoadingModel = false
     @Published var selectedModel: MLXModel?
     @Published var currentResponse = ""
     @Published var modelInfo = "No model loaded"
+    
+    // Thread-specific properties
+    var threadId: UUID?
+    var onMessageAdded: ((UUID, ChatMessage) async -> Void)?
     
     private let downloadManager = ModelDownloadManager.shared
     private var loadedModel: ModelContext?
@@ -47,6 +52,9 @@ class ChatManager: ObservableObject {
             modelInfo = "Model not downloaded"
             return
         }
+        
+        // Start loading state
+        isLoadingModel = true
         
         // Load the actual MLX model
         do {
@@ -90,17 +98,37 @@ class ChatManager: ObservableObject {
             loadedModel = nil
             chatSession = nil
         }
+        
+        // End loading state
+        isLoadingModel = false
     }
     
     func sendMessage(_ content: String) {
         print("DEBUG: sendMessage called with content: \(content)")
+        print("DEBUG: Current selectedModel before sending: \(selectedModel?.name ?? "nil")")
+        print("DEBUG: Current threadId: \(threadId?.uuidString ?? "nil")")
+        
         let userMessage = ChatMessage(content: content, isUser: true)
         messages.append(userMessage)
         print("DEBUG: Added user message, messages count: \(messages.count)")
         
+        // Notify thread manager if callback is set
+        if let threadId = threadId, let callback = onMessageAdded {
+            Task {
+                await callback(threadId, userMessage)
+            }
+        }
+        
         guard let selectedModel = selectedModel else {
+            print("DEBUG: ERROR - selectedModel is nil when trying to send message!")
             let errorMessage = ChatMessage(content: "Please select a model from the Models tab first.", isUser: false)
             messages.append(errorMessage)
+            // Notify thread manager of error message
+            if let threadId = threadId, let callback = onMessageAdded {
+                Task {
+                    await callback(threadId, errorMessage)
+                }
+            }
             return
         }
         
@@ -108,12 +136,24 @@ class ChatManager: ObservableObject {
         guard downloadManager.getDownloadState(for: selectedModel) == .completed else {
             let errorMessage = ChatMessage(content: "Please download the \(selectedModel.name) model first.", isUser: false)
             messages.append(errorMessage)
+            // Notify thread manager of error message
+            if let threadId = threadId, let callback = onMessageAdded {
+                Task {
+                    await callback(threadId, errorMessage)
+                }
+            }
             return
         }
         
         guard let session = chatSession else {
             let errorMessage = ChatMessage(content: "Model is not loaded. Please try selecting the model again.", isUser: false)
             messages.append(errorMessage)
+            // Notify thread manager of error message
+            if let threadId = threadId, let callback = onMessageAdded {
+                Task {
+                    await callback(threadId, errorMessage)
+                }
+            }
             return
         }
         
@@ -161,6 +201,14 @@ class ChatManager: ObservableObject {
                     if !Task.isCancelled {
                         let aiMessage = ChatMessage(content: response.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
                         self.messages.append(aiMessage)
+                        
+                        // Notify thread manager of AI response
+                        if let threadId = self.threadId, let callback = self.onMessageAdded {
+                            Task {
+                                await callback(threadId, aiMessage)
+                            }
+                        }
+                        
                         self.currentResponse = ""
                         self.isGenerating = false
                         print("DEBUG: MLX generation completed successfully")
@@ -172,6 +220,14 @@ class ChatManager: ObservableObject {
                 await MainActor.run {
                     let timeoutMessage = ChatMessage(content: "⚠️ Generation timed out. The MLX model may not be responding correctly.", isUser: false)
                     self.messages.append(timeoutMessage)
+                    
+                    // Notify thread manager of timeout message
+                    if let threadId = self.threadId, let callback = self.onMessageAdded {
+                        Task {
+                            await callback(threadId, timeoutMessage)
+                        }
+                    }
+                    
                     self.currentResponse = ""
                     self.isGenerating = false
                 }
@@ -186,6 +242,14 @@ class ChatManager: ObservableObject {
                 await MainActor.run {
                     let errorMessage = ChatMessage(content: "Error generating response: \(error.localizedDescription)", isUser: false)
                     self.messages.append(errorMessage)
+                    
+                    // Notify thread manager of error message
+                    if let threadId = self.threadId, let callback = self.onMessageAdded {
+                        Task {
+                            await callback(threadId, errorMessage)
+                        }
+                    }
+                    
                     self.currentResponse = ""
                     self.isGenerating = false
                 }
@@ -201,11 +265,58 @@ class ChatManager: ObservableObject {
         if !currentResponse.isEmpty {
             let aiMessage = ChatMessage(content: currentResponse, isUser: false)
             messages.append(aiMessage)
+            
+            // Notify thread manager of partial response
+            if let threadId = threadId, let callback = onMessageAdded {
+                Task {
+                    await callback(threadId, aiMessage)
+                }
+            }
+            
             currentResponse = ""
         }
     }
     
     func clearMessages() {
         messages.removeAll()
+    }
+    
+    // MARK: - Thread Management
+    
+    func loadThread(_ thread: ChatThread) async {
+        let oldThreadId = threadId
+        let oldSelectedModel = selectedModel
+        
+        print("DEBUG: loadThread called for thread \(thread.id), title: '\(thread.title)'")
+        print("DEBUG: oldThreadId = \(oldThreadId?.uuidString ?? "nil"), newThreadId = \(thread.id.uuidString)")
+        print("DEBUG: oldSelectedModel = \(oldSelectedModel?.name ?? "nil"), thread.selectedModel = \(thread.selectedModel?.name ?? "nil")")
+        
+        threadId = thread.id
+        messages = thread.messages
+        
+        // Only load model if this is a different thread
+        if oldThreadId != thread.id {
+            print("DEBUG: Different thread detected, checking model selection...")
+            // Load the thread's selected model if available
+            if let model = thread.selectedModel {
+                print("DEBUG: Thread has selected model: \(model.name), loading...")
+                await selectModel(model)
+            } else if selectedModel == nil {
+                // Only clear model if we don't have one selected already
+                // This preserves user's active model selection when thread doesn't specify one
+                print("DEBUG: No thread model and no current model, clearing model info")
+                modelInfo = "No model selected"
+            } else {
+                print("DEBUG: No thread model but keeping current selection: \(selectedModel?.name ?? "unknown")")
+            }
+        } else {
+            print("DEBUG: Same thread, preserving model selection: \(selectedModel?.name ?? "nil")")
+        }
+        
+        print("DEBUG: Loaded thread: \(thread.title) with \(messages.count) messages, final model: \(selectedModel?.name ?? "nil")")
+    }
+    
+    func setupThreadCallback(_ callback: @escaping (UUID, ChatMessage) async -> Void) {
+        onMessageAdded = callback
     }
 }
