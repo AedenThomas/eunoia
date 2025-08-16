@@ -95,26 +95,39 @@ struct ChatSidebar: View {
     }
     
     private var threadList: some View {
-        ScrollView {
-            LazyVStack(spacing: 4) {
-                ForEach(filteredThreads) { thread in
-                    ChatThreadRow(
-                        thread: thread,
-                        isSelected: thread.id == threadManager.activeThreadId,
-                        onSelect: {
-                            Task {
-                                await threadManager.selectThread(with: thread.id)
-                            }
-                        },
-                        onDelete: {
-                            threadToDelete = thread.id
-                            showingDeleteConfirmation = true
+        List {
+            ForEach(filteredThreads) { thread in
+                ChatThreadRow(
+                    thread: thread,
+                    isSelected: thread.id == threadManager.activeThreadId,
+                    onSelect: {
+                        Task {
+                            await threadManager.selectThread(with: thread.id)
                         }
-                    )
-                }
+                    },
+                    onDelete: {
+                        // This is now handled by .onDelete modifier below
+                    }
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .onDelete(perform: deleteThread)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+    }
+    
+    private func deleteThread(at offsets: IndexSet) {
+        // Get the thread to delete
+        let threadsToDelete = offsets.map { filteredThreads[$0] }
+        
+        // Show confirmation for the first thread (usually only one)
+        if let firstThread = threadsToDelete.first {
+            threadToDelete = firstThread.id
+            showingDeleteConfirmation = true
         }
     }
     
