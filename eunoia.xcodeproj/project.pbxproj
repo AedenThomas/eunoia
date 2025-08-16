@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5E1B24E02E50F988001DDE2C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1B24DF2E50F988001DDE2C /* MarkdownUI */; };
 		5E1FFEDA2E4F2AE100F002CB /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1FFED92E4F2AE100F002CB /* MLX */; };
 		5E1FFEDC2E4F2AE100F002CB /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1FFEDB2E4F2AE100F002CB /* MLXNN */; };
 		5E1FFEDE2E4F2AE100F002CB /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1FFEDD2E4F2AE100F002CB /* MLXLLM */; };
@@ -63,6 +64,7 @@
 				5E1FFEDC2E4F2AE100F002CB /* MLXNN in Frameworks */,
 				5E1FFEE02E4F2AE100F002CB /* MLXLMCommon in Frameworks */,
 				5E1FFEDA2E4F2AE100F002CB /* MLX in Frameworks */,
+				5E1B24E02E50F988001DDE2C /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -135,6 +137,7 @@
 				5E1FFEDB2E4F2AE100F002CB /* MLXNN */,
 				5E1FFEDD2E4F2AE100F002CB /* MLXLLM */,
 				5E1FFEDF2E4F2AE100F002CB /* MLXLMCommon */,
+				5E1B24DF2E50F988001DDE2C /* MarkdownUI */,
 			);
 			productName = eunoia;
 			productReference = 5E1FFEA62E4E9AD400F002CB /* eunoia.app */;
@@ -221,6 +224,7 @@
 			packageReferences = (
 				5E1FFED62E4F2A8000F002CB /* XCRemoteSwiftPackageReference "mlx-swift" */,
 				5E1FFED72E4F2A9A00F002CB /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
+				5E1B24DE2E50F57A001DDE2C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5E1FFEA72E4E9AD400F002CB /* Products */;
@@ -620,6 +624,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		5E1B24DE2E50F57A001DDE2C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
 		5E1FFED62E4F2A8000F002CB /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ml-explore/mlx-swift.git";
@@ -639,6 +651,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		5E1B24DF2E50F988001DDE2C /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E1B24DE2E50F57A001DDE2C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
 		5E1FFED92E4F2AE100F002CB /* MLX */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5E1FFED62E4F2A8000F002CB /* XCRemoteSwiftPackageReference "mlx-swift" */;

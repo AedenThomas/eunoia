@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkdownUI
 
 struct ChatView: View {
     @State private var messageText = ""
@@ -229,22 +230,31 @@ struct ChatBubbleView: View {
                 Spacer(minLength: 60)
             }
             
-            Text(message.content)
-                .font(.system(.body, design: .default, weight: .regular))
-                .foregroundColor(message.isUser ? .white : .primary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(message.isUser ? Color.gray : Color(.controlBackgroundColor))
-                        .overlay {
-                            if !message.isUser {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
-                            }
-                        }
-                        .shadow(color: Color.primary.opacity(0.05), radius: 1, x: 0, y: 1)
+            Group {
+                if message.isUser {
+                    Text(message.content)
+                        .font(.system(.body, design: .default, weight: .regular))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                } else {
+                    Markdown(message.content)
+                        .markdownTheme(.gitHub)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                 }
+            }
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(message.isUser ? Color.gray : Color(.controlBackgroundColor))
+                    .overlay {
+                        if !message.isUser {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
+                        }
+                    }
+                    .shadow(color: Color.primary.opacity(0.05), radius: 1, x: 0, y: 1)
+            }
             
             if !message.isUser {
                 Spacer(minLength: 60)

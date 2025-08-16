@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkdownUI
 
 // Singleton to maintain ChatManager instances across view recreations
 class ChatManagerStore: ObservableObject {
@@ -307,6 +308,7 @@ private struct ThreadChatViewContent: View {
     @ObservedObject var chatManager: ChatManager
     @State private var messageText = ""
     @FocusState private var isTextFieldFocused: Bool
+    @State private var showModelSelectionPrompt = false
     
     var body: some View {
         ZStack {
@@ -329,6 +331,11 @@ private struct ThreadChatViewContent: View {
             // Full screen loading overlay
             if chatManager.isLoadingModel {
                 modelLoadingOverlay
+            }
+            
+            // Model selection prompt
+            if showModelSelectionPrompt {
+                modelSelectionPromptOverlay
             }
         }
     }
@@ -488,9 +495,123 @@ private struct ThreadChatViewContent: View {
         .animation(.easeInOut(duration: 0.3), value: chatManager.isLoadingModel)
     }
     
+    private var modelSelectionPromptOverlay: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    showModelSelectionPrompt = false
+                }
+            
+            // Model selection prompt
+            VStack(spacing: 24) {
+                VStack(spacing: 16) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 48, weight: .light))
+                        .foregroundColor(Color(hex: 0x007AFF))
+                    
+                    VStack(spacing: 8) {
+                        Text("Select a Model to Chat")
+                            .font(.system(.title2, design: .default, weight: .semibold))
+                            .foregroundColor(.primary)
+                        
+                        Text("Choose from your downloaded models to start chatting")
+                            .font(.system(.body, design: .default, weight: .regular))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                
+                let downloadManager = ModelDownloadManager.shared
+                let availableModels = ModelRegistry.availableModels.filter { model in
+                    downloadManager.downloadedModels.contains(model.identifier)
+                }
+                
+                if availableModels.isEmpty {
+                    VStack(spacing: 16) {
+                        Text("No models downloaded yet")
+                            .font(.system(.body, design: .default, weight: .medium))
+                            .foregroundColor(.secondary)
+                        
+                        Button("Download Models") {
+                            showModelSelectionPrompt = false
+                            // This will be handled by the ModelSelectorBar
+                        }
+                        .font(.system(.body, design: .default, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(Color(hex: 0x007AFF))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(availableModels, id: \.identifier) { model in
+                            Button(action: {
+                                Task {
+                                    await chatManager.selectModel(model)
+                                    showModelSelectionPrompt = false
+                                }
+                            }) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(model.name)
+                                            .font(.system(.body, design: .default, weight: .semibold))
+                                            .foregroundColor(.primary)
+                                        
+                                        Text(model.description)
+                                            .font(.system(.caption, design: .default, weight: .regular))
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Text(model.size)
+                                        .font(.system(.caption, design: .default, weight: .medium))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(Color(.controlBackgroundColor))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .frame(maxWidth: 400)
+                }
+                
+                Button("Cancel") {
+                    showModelSelectionPrompt = false
+                }
+                .font(.system(.body, design: .default, weight: .regular))
+                .foregroundColor(.secondary)
+            }
+            .padding(32)
+            .background(Color(.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .shadow(color: Color.primary.opacity(0.1), radius: 20, x: 0, y: 10)
+            .frame(maxWidth: 500)
+        }
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.3), value: showModelSelectionPrompt)
+    }
+    
     private func sendMessage() {
         let trimmedText = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
+        
+        // Check if a model is selected before sending
+        guard chatManager.selectedModel != nil else {
+            showModelSelectionPrompt = true
+            return
+        }
         
         chatManager.sendMessage(trimmedText)
         messageText = ""
