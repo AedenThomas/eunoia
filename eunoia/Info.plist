@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+<key>NSLocalNetworkUsageDescription</key>
+<string>This app uses the local network to discover and connect to nearby MLX AI devices for inference sharing.</string>
+<key>NSBonjourServices</key>
+<array>
+    <string>_mlx-ai-local._tcp</string>
+</array>
+
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string></string>
+		</dict>
+	</array>
+</dict>
+</plist>

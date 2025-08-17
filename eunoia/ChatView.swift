@@ -1,6 +1,10 @@
 import SwiftUI
 import MarkdownUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 struct ChatView: View {
     @State private var messageText = ""
     @StateObject private var chatManager = ChatManager()
@@ -22,7 +26,11 @@ struct ChatView: View {
                 
                 inputArea
             }
-            .background(Color(.controlBackgroundColor))
+            #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
             .ignoresSafeArea(.keyboard, edges: .bottom)
             
             // Full screen loading overlay
@@ -105,46 +113,64 @@ struct ChatView: View {
     }
     
     private var inputArea: some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 8) {
+            // Network status indicator
             HStack {
-                TextField("Message", text: $messageText)
-                    .textFieldStyle(.plain)
-                    .font(.system(.body, design: .default, weight: .regular))
-                    .focused($isTextFieldFocused)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .onSubmit {
-                        sendMessage()
-                    }
-                
-                if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Color(hex: 0x007AFF))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.scale.combined(with: .opacity))
-                    .animation(.easeOut(duration: 0.2), value: messageText.isEmpty)
-                }
+                Spacer()
+                NetworkStatusIndicator(chatManager: chatManager)
             }
-            .background(Color(.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder(
-                        isTextFieldFocused ? Color(hex: 0x007AFF) : Color.gray.opacity(0.3),
-                        lineWidth: isTextFieldFocused ? 2 : 1
-                    )
-                    .animation(.easeOut(duration: 0.2), value: isTextFieldFocused)
-            )
+            .padding(.horizontal, 20)
+            
+            // Input field
+            HStack(spacing: 12) {
+                HStack {
+                    TextField("Message", text: $messageText)
+                        .textFieldStyle(.plain)
+                        .font(.system(.body, design: .default, weight: .regular))
+                        .focused($isTextFieldFocused)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .onSubmit {
+                            sendMessage()
+                        }
+                    
+                    if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button(action: sendMessage) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(.white)
+                                .frame(width: 32, height: 32)
+                                .background(Color(hex: 0x007AFF))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.scale.combined(with: .opacity))
+                        .animation(.easeOut(duration: 0.2), value: messageText.isEmpty)
+                    }
+                }
+                #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(
+                            isTextFieldFocused ? Color(hex: 0x007AFF) : Color.gray.opacity(0.3),
+                            lineWidth: isTextFieldFocused ? 2 : 1
+                        )
+                        .animation(.easeOut(duration: 0.2), value: isTextFieldFocused)
+                )
+            }
+            .padding(.horizontal, 20)
         }
-        .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
     }
     
     private var modelLoadingOverlay: some View {
@@ -178,12 +204,27 @@ struct ChatView: View {
                 }
             }
             .padding(40)
-            .background(Color(.controlBackgroundColor))
+            #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .shadow(color: Color.primary.opacity(0.1), radius: 20, x: 0, y: 10)
         }
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.3), value: chatManager.isLoadingModel)
+        .onAppear {
+            if chatManager.getNetworkManager() == nil {
+                print("DEBUG: ChatView onAppear - initializing networking")
+                chatManager.initializeNetworking()
+                print("DEBUG: ChatView onAppear - starting network services")
+                chatManager.startNetworkServices()
+                print("DEBUG: ChatView onAppear - network services started")
+            } else {
+                print("DEBUG: ChatView onAppear - network manager already exists")
+            }
+        }
     }
     
     private func sendMessage() {
@@ -246,7 +287,13 @@ struct ChatBubbleView: View {
             }
             .background {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(message.isUser ? Color.gray : Color(.controlBackgroundColor))
+                    .fill(message.isUser ? Color.gray : {
+                         #if os(macOS)
+                         return Color(NSColor.windowBackgroundColor)
+                         #else
+                         return Color(.systemBackground)
+                         #endif
+                    }())
                     .overlay {
                         if !message.isUser {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)

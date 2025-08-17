@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct ModelSelectorBar: View {
     @ObservedObject var chatManager: ChatManager
@@ -24,11 +27,19 @@ struct ModelSelectorBar: View {
         !downloadedModels.isEmpty
     }
     
+    var availableRemoteDevices: [RemoteMLXDevice] {
+        chatManager.getAvailableRemoteDevices()
+    }
+    
+    var hasAvailableOptions: Bool {
+        hasDownloadedModels || !availableRemoteDevices.isEmpty
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             selectorBar
             
-            if showingModelDropdown && hasDownloadedModels {
+            if showingModelDropdown && hasAvailableOptions {
                 modelDropdown
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -41,20 +52,45 @@ struct ModelSelectorBar: View {
                 chatManager: chatManager
             )
         }
+        .onAppear {
+            if chatManager.getNetworkManager() == nil {
+                chatManager.initializeNetworking()
+            }
+        }
     }
     
     private var selectorBar: some View {
         Group {
-            if hasDownloadedModels {
-                // Show dropdown for downloaded models
+            if hasAvailableOptions {
+                // Show dropdown for local models and remote devices
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        if let selectedModel = chatManager.selectedModel {
-                            Text(selectedModel.name)
-                                .font(.system(.body, design: .default, weight: .medium))
-                                .foregroundColor(Color.primary)
+                        if chatManager.isUsingRemoteInference {
+                            if let remoteDevice = chatManager.selectedRemoteDevice {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "iphone.and.arrow.forward")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Color(hex: 0x007AFF))
+                                    Text(remoteDevice.name)
+                                        .font(.system(.body, design: .default, weight: .medium))
+                                        .foregroundColor(Color.primary)
+                                }
+                            } else {
+                                Text("Remote device connecting...")
+                                    .font(.system(.subheadline, design: .default, weight: .regular))
+                                    .foregroundColor(Color.orange)
+                            }
+                        } else if let selectedModel = chatManager.selectedModel {
+                            HStack(spacing: 4) {
+                                Image(systemName: "cpu")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Color.gray)
+                                Text(selectedModel.name)
+                                    .font(.system(.body, design: .default, weight: .medium))
+                                    .foregroundColor(Color.primary)
+                            }
                         } else {
-                            Text("Select a model")
+                            Text("Select a model or device")
                                 .font(.system(.subheadline, design: .default, weight: .regular))
                                 .foregroundColor(Color.gray)
                         }
@@ -81,16 +117,25 @@ struct ModelSelectorBar: View {
                     }
                 }
             } else {
-                // Show download modal when no models are available
+                // Show setup options when no models or devices are available
                 Button(action: {
                     print("DEBUG: Download models button clicked in ModelSelectorBar")
+                    // Initialize networking first
+                    chatManager.initializeNetworking()
+                    chatManager.startNetworkServices()
                     downloadModalManager.openDownloadModal()
                 }) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
+                            #if os(macOS)
+                            Text("Download models or find devices")
+                                .font(.system(.subheadline, design: .default, weight: .regular))
+                                .foregroundColor(Color(hex: 0x007AFF))
+                            #else
                             Text("Download models to get started")
                                 .font(.system(.subheadline, design: .default, weight: .regular))
                                 .foregroundColor(Color(hex: 0x007AFF))
+                            #endif
                         }
                         
                         Spacer()
@@ -114,23 +159,78 @@ struct ModelSelectorBar: View {
                 .frame(height: 1)
             
             VStack(spacing: 8) {
-                ForEach(downloadedModels) { model in
-                    ModelDropdownRow(
-                        model: model,
-                        isSelected: chatManager.selectedModel?.id == model.id,
-                        action: {
-                            Task {
-                                await chatManager.selectModel(model)
-                                await MainActor.run {
-                                    withAnimation(.easeOut(duration: 0.3)) {
-                                        showingModelDropdown = false
+                // Local Models Section
+                if hasDownloadedModels {
+                    HStack {
+                        Text("Local Models")
+                            .font(.system(.caption, design: .default, weight: .semibold))
+                            .foregroundColor(Color.secondary)
+                            .textCase(.uppercase)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    
+                    ForEach(downloadedModels) { model in
+                        ModelDropdownRow(
+                            model: model,
+                            isSelected: !chatManager.isUsingRemoteInference && chatManager.selectedModel?.id == model.id,
+                            action: {
+                                Task {
+                                    // Disable remote inference and select local model
+                                    chatManager.enableRemoteInference(nil)
+                                    await chatManager.selectModel(model)
+                                    await MainActor.run {
+                                        withAnimation(.easeOut(duration: 0.3)) {
+                                            showingModelDropdown = false
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        downloadManager: downloadManager
-                    )
+                            },
+                            downloadManager: downloadManager
+                        )
+                    }
                 }
+                
+                // Remote Devices Section
+                #if os(macOS)
+                if !availableRemoteDevices.isEmpty {
+                    if hasDownloadedModels {
+                        Divider()
+                            .padding(.vertical, 4)
+                    }
+                    
+                    HStack {
+                        Text("Remote Devices")
+                            .font(.system(.caption, design: .default, weight: .semibold))
+                            .foregroundColor(Color.secondary)
+                            .textCase(.uppercase)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    
+                    ForEach(availableRemoteDevices) { device in
+                        RemoteDeviceRow(
+                            device: device,
+                            isSelected: chatManager.isUsingRemoteInference && chatManager.selectedRemoteDevice?.id == device.id,
+                            action: {
+                                // Enable remote inference and select device
+                                chatManager.enableRemoteInference(device)
+                                if let networkManager = chatManager.getNetworkManager() as? macOSMLXNetworkManager {
+                                    networkManager.selectRemoteDevice(device)
+                                }
+                                withAnimation(.easeOut(duration: 0.3)) {
+                                    showingModelDropdown = false
+                                }
+                            }
+                        )
+                    }
+                }
+                #endif
+                
+                // Action Buttons
+                Divider()
+                    .padding(.vertical, 4)
                 
                 Button(action: {
                     withAnimation(.easeOut(duration: 0.3)) {
@@ -139,19 +239,55 @@ struct ModelSelectorBar: View {
                     showingDownloadModal = true
                 }) {
                     HStack {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 14))
                         Text("Download More Models...")
                             .font(.system(.body, design: .default, weight: .regular))
-                            .foregroundColor(Color(hex: 0x007AFF))
                         Spacer()
                     }
+                    .foregroundColor(Color(hex: 0x007AFF))
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
                 .buttonStyle(.plain)
+                
+                #if os(macOS)
+                Button(action: {
+                    // Toggle device discovery
+                    if let networkManager = chatManager.getNetworkManager() as? macOSMLXNetworkManager {
+                        if networkManager.isDiscoveryEnabled {
+                            networkManager.stopDeviceDiscovery()
+                        } else {
+                            networkManager.startDeviceDiscovery()
+                        }
+                    }
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        showingModelDropdown = false
+                    }
+                }) {
+                    HStack {
+                        let isDiscovering = (chatManager.getNetworkManager() as? macOSMLXNetworkManager)?.isDiscoveryEnabled ?? false
+                        Image(systemName: isDiscovering ? "wifi.slash" : "wifi")
+                            .font(.system(size: 14))
+                        Text(isDiscovering ? "Stop Device Discovery" : "Find Remote Devices")
+                            .font(.system(.body, design: .default, weight: .regular))
+                        Spacer()
+                    }
+                    .foregroundColor(Color(hex: 0x007AFF))
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+                .buttonStyle(.plain)
+                #endif
             }
             .padding(.vertical, 8)
-            .background(Color(.controlBackgroundColor))
+            #if os(macOS)
+            .background(Color(NSColor.windowBackgroundColor))
+            #else
+            .background(Color(.systemBackground))
+            #endif
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .shadow(color: Color.primary.opacity(0.1), radius: 8, x: 0, y: 4)
         }
@@ -235,7 +371,11 @@ struct ModelDownloadModal: View {
                 chatManager: chatManager
             )
         }
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         #if os(macOS)
         .frame(minWidth: 800, minHeight: 600)
         .onKeyPress(.escape) {
@@ -243,6 +383,48 @@ struct ModelDownloadModal: View {
             return .handled
         }
         #endif
+    }
+}
+
+struct RemoteDeviceRow: View {
+    let device: RemoteMLXDevice
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 16))
+                    .foregroundColor(isSelected ? Color(hex: 0x007AFF) : Color.gray)
+                
+                Image(systemName: device.statusIcon)
+                    .font(.system(size: 14))
+                    .foregroundColor(device.isConnected ? Color.green : Color.orange)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(device.name)
+                        .font(.system(.body, design: .default, weight: .medium))
+                        .foregroundColor(Color.primary)
+                    
+                    Text("\(device.availableModels.count) models available")
+                        .font(.system(.caption, design: .default, weight: .regular))
+                        .foregroundColor(Color.secondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(device.isConnected ? "Connected" : "Available")
+                        .font(.system(.caption2, design: .default, weight: .medium))
+                        .foregroundColor(device.isConnected ? Color.green : Color.orange)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 

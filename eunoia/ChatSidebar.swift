@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct ChatSidebar: View {
     @ObservedObject var threadManager: ChatThreadManager
@@ -27,7 +30,11 @@ struct ChatSidebar: View {
                 emptyState
             }
         }
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .alert("Delete Thread", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 threadToDelete = nil
@@ -91,7 +98,11 @@ struct ChatSidebar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
     }
     
     private var threadList: some View {

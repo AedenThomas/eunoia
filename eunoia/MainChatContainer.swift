@@ -3,6 +3,8 @@ import MarkdownUI
 
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 
 // A shared class to manage the download modal state
@@ -35,6 +37,80 @@ struct MainChatContainer: View {
     @State private var showingSidebar = false
     
     var body: some View {
+        #if os(iOS)
+        // iOS-specific layout
+        NavigationStack {
+            ZStack(alignment: .leading) {
+                // Main content area
+                detailView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                
+                // Sidebar for iOS (shown when swiping from left)
+                if showingSidebar {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                showingSidebar = false
+                            }
+                        }
+                    
+                    ChatSidebar(threadManager: threadManager)
+                        .frame(width: min(UIScreen.main.bounds.width * 0.85, 320))
+                        .transition(.move(edge: .leading))
+                        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
+                        .zIndex(1)
+                        .shadow(radius: 5)
+                }
+            }
+            // Add gesture to show sidebar when swiping from left edge
+            .gesture(
+                DragGesture()
+                    .onEnded { value in
+                        let threshold: CGFloat = 50
+                        if value.startLocation.x < 20 && value.translation.width > threshold {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                showingSidebar = true
+                            }
+                        } else if value.translation.width < -threshold {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                showingSidebar = false
+                            }
+                        }
+                    }
+            )
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            showingSidebar.toggle()
+                        }
+                    }) {
+                        Image(systemName: "line.3.horizontal")
+                            .imageScale(.large)
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .onAppear {
+            setupInitialThread()
+        }
+        .onChange(of: threadManager.activeThreadId) { _, newThreadId in
+            selectedThreadId = newThreadId
+            // Hide sidebar when thread changes on iOS
+            if showingSidebar {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    showingSidebar = false
+                }
+            }
+        }
+        #else
+        // macOS layout (unchanged)
         NavigationSplitView {
             // Sidebar
             ChatSidebar(threadManager: threadManager)
@@ -51,6 +127,7 @@ struct MainChatContainer: View {
         .onChange(of: threadManager.activeThreadId) { _, newThreadId in
             selectedThreadId = newThreadId
         }
+        #endif
     }
     
     @ViewBuilder
@@ -97,7 +174,11 @@ struct MainChatContainer: View {
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
     }
     
     private var emptyStateView: some View {
@@ -145,7 +226,11 @@ struct MainChatContainer: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .padding(.horizontal, 40)
     }
     
@@ -171,7 +256,11 @@ struct MainChatContainer: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .padding(.horizontal, 40)
     }
     
@@ -245,8 +334,11 @@ struct ThreadChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            // Only show header on macOS, on iOS we use the Navigation bar
+            #if os(macOS)
             // Header with new chat button
             chatHeader
+            #endif
             
             // Chat content
             ThreadChatViewContent(chatManager: chatManager)
@@ -254,6 +346,17 @@ struct ThreadChatView: View {
                     print("DEBUG: ThreadChatView onAppear for thread \(thread.id), title: '\(thread.title)'")
                     print("DEBUG: ChatManager.threadId = \(chatManager.threadId?.uuidString ?? "nil"), thread.id = \(thread.id.uuidString)")
                     print("DEBUG: ChatManager selectedModel before onAppear: \(chatManager.selectedModel?.name ?? "nil")")
+                    
+                    // Initialize networking if needed
+                    if chatManager.getNetworkManager() == nil {
+                        print("DEBUG: ThreadChatView onAppear - initializing networking")
+                        chatManager.initializeNetworking()
+                        print("DEBUG: ThreadChatView onAppear - starting network services")
+                        chatManager.startNetworkServices()
+                        print("DEBUG: ThreadChatView onAppear - network services started")
+                    } else {
+                        print("DEBUG: ThreadChatView onAppear - network manager already exists")
+                    }
                     
                     // Ensure chat manager is loaded with thread data
                     if chatManager.threadId != thread.id {
@@ -266,6 +369,22 @@ struct ThreadChatView: View {
                     }
                 }
         }
+        #if os(iOS)
+        // On iOS, set the navigation title
+        .navigationTitle(thread.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    Task {
+                        await threadManager.createNewThread()
+                    }
+                }) {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        #endif
     }
     
     private var chatHeader: some View {
@@ -309,7 +428,11 @@ struct ThreadChatView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .overlay(
             Rectangle()
                 .fill(Color.gray.opacity(0.2))
@@ -343,7 +466,11 @@ private struct ThreadChatViewContent: View {
                 
                 inputArea
             }
-            .background(Color(.controlBackgroundColor))
+            #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
             .ignoresSafeArea(.keyboard, edges: .bottom)
             
             // Full screen loading overlay
@@ -464,7 +591,11 @@ private struct ThreadChatViewContent: View {
                     .animation(.easeOut(duration: 0.2), value: messageText.isEmpty)
                 }
             }
-            .background(Color(.controlBackgroundColor))
+            #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(
                 RoundedRectangle(cornerRadius: 20)
@@ -477,7 +608,11 @@ private struct ThreadChatViewContent: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
     }
     
     private var modelLoadingOverlay: some View {
@@ -511,7 +646,11 @@ private struct ThreadChatViewContent: View {
                 }
             }
             .padding(40)
-            .background(Color(.controlBackgroundColor))
+            #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .shadow(color: Color.primary.opacity(0.1), radius: 20, x: 0, y: 10)
         }
@@ -615,7 +754,11 @@ private struct ThreadChatViewContent: View {
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
-                                .background(Color(.controlBackgroundColor))
+                                #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 12)
@@ -682,7 +825,11 @@ private struct ThreadChatViewContent: View {
                 }
             }
             .padding(32)
-            .background(Color(.controlBackgroundColor))
+            #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .shadow(color: Color.primary.opacity(0.1), radius: 20, x: 0, y: 10)
             .frame(maxWidth: 500)

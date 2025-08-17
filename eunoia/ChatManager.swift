@@ -2,6 +2,7 @@ import Foundation
 import MLX
 import MLXLLM
 import MLXLMCommon
+import MultipeerConnectivity
 
 // Helper function to add timeout to async operations
 func withTimeout<T>(seconds: Double, operation: @escaping () async throws -> T) async throws -> T {
@@ -34,6 +35,11 @@ class ChatManager: ObservableObject {
     @Published var currentResponse = ""
     @Published var modelInfo = "No model loaded"
     
+    // Remote inference properties
+    @Published var selectedRemoteDevice: RemoteMLXDevice?
+    @Published var isUsingRemoteInference = false
+    @Published var remoteInferenceStatus = "Not connected"
+    
     // Thread-specific properties
     var threadId: UUID?
     var onMessageAdded: ((UUID, ChatMessage) async -> Void)?
@@ -42,6 +48,13 @@ class ChatManager: ObservableObject {
     private var loadedModel: ModelContext?
     private var chatSession: ChatSession?
     private var generateTask: Task<Void, Never>?
+    
+    // Multipeer managers (platform-specific)
+    #if os(iOS)
+    private var iosNetworkManager: iOSMLXNetworkManager?
+    #elseif os(macOS)
+    private var macOSNetworkManager: macOSMLXNetworkManager?
+    #endif
     
     func selectModel(_ model: MLXModel) async {
         print("DEBUG: selectModel() called with model: \(model.name)")
@@ -111,6 +124,7 @@ class ChatManager: ObservableObject {
     func sendMessage(_ content: String) {
         print("DEBUG: sendMessage called with content: \(content)")
         print("DEBUG: Current selectedModel before sending: \(selectedModel?.name ?? "nil")")
+        print("DEBUG: Using remote inference: \(isUsingRemoteInference)")
         print("DEBUG: Current threadId: \(threadId?.uuidString ?? "nil")")
         
         let userMessage = ChatMessage(content: content, isUser: true)
@@ -126,32 +140,7 @@ class ChatManager: ObservableObject {
         
         guard let selectedModel = selectedModel else {
             print("DEBUG: ERROR - selectedModel is nil when trying to send message!")
-            let errorMessage = ChatMessage(content: "Please select a model from the Models tab first.", isUser: false)
-            messages.append(errorMessage)
-            // Notify thread manager of error message
-            if let threadId = threadId, let callback = onMessageAdded {
-                Task {
-                    await callback(threadId, errorMessage)
-                }
-            }
-            return
-        }
-        
-        // Check if model is downloaded
-        guard downloadManager.getDownloadState(for: selectedModel) == .completed else {
-            let errorMessage = ChatMessage(content: "Please download the \(selectedModel.name) model first.", isUser: false)
-            messages.append(errorMessage)
-            // Notify thread manager of error message
-            if let threadId = threadId, let callback = onMessageAdded {
-                Task {
-                    await callback(threadId, errorMessage)
-                }
-            }
-            return
-        }
-        
-        guard let session = chatSession else {
-            let errorMessage = ChatMessage(content: "Model is not loaded. Please try selecting the model again.", isUser: false)
+            let errorMessage = ChatMessage(content: "Please select a model or remote device first.", isUser: false)
             messages.append(errorMessage)
             // Notify thread manager of error message
             if let threadId = threadId, let callback = onMessageAdded {
@@ -169,98 +158,359 @@ class ChatManager: ObservableObject {
         // Cancel any existing generation task
         generateTask?.cancel()
         
-        // Start real MLX text generation with multiple approaches
-        generateTask = Task {
-            do {
-                print("DEBUG: Starting MLX text generation...")
-                print("DEBUG: Model identifier: \(selectedModel.identifier)")
-                print("DEBUG: ChatSession exists: true")
-                
-                // Try a simple test first - see if the model can do basic operations
-                let testArray = MLXArray([1.0, 2.0, 3.0])
-                print("DEBUG: Test MLX array: \(testArray)")
-                
-                // Use ChatSession to generate response - fixed with proper ModelConfiguration
-                print("DEBUG: About to call session.respond(to:)")
-                
-                // Format the prompt according to model requirements
-                let formattedPrompt: String
-                if selectedModel.identifier.contains("SmolLM") {
-                    // SmolLM uses ChatML format with <|im_start|> and <|im_end|> tokens
-                    formattedPrompt = "<|im_start|>user\n\(content)<|im_end|>\n<|im_start|>assistant\n"
-                    print("DEBUG: SmolLM formatted prompt: \(formattedPrompt)")
-                } else {
-                    // Use default formatting for other models
-                    formattedPrompt = content
-                }
-                
-                // Add timeout to prevent indefinite hanging
-                let response = try await withTimeout(seconds: 30.0) {
-                    return try await session.respond(to: formattedPrompt)
-                }
-                
-                print("DEBUG: MLX generation completed, response: '\(response)'")
-                
-                // Update UI with the complete response
-                await MainActor.run {
-                    if !Task.isCancelled {
-                        let aiMessage = ChatMessage(content: response.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
-                        self.messages.append(aiMessage)
-                        
-                        // Notify thread manager of AI response
-                        if let threadId = self.threadId, let callback = self.onMessageAdded {
-                            Task {
-                                await callback(threadId, aiMessage)
-                            }
-                        }
-                        
-                        self.currentResponse = ""
-                        self.isGenerating = false
-                        print("DEBUG: MLX generation completed successfully")
-                    }
-                }
-                
-            } catch is TimeoutError {
-                print("DEBUG: MLX generation timed out - this suggests session.respond(to:) is hanging")
-                await MainActor.run {
-                    let timeoutMessage = ChatMessage(content: "⚠️ Generation timed out. The MLX model may not be responding correctly.", isUser: false)
-                    self.messages.append(timeoutMessage)
-                    
-                    // Notify thread manager of timeout message
-                    if let threadId = self.threadId, let callback = self.onMessageAdded {
-                        Task {
-                            await callback(threadId, timeoutMessage)
-                        }
-                    }
-                    
-                    self.currentResponse = ""
-                    self.isGenerating = false
-                }
-            } catch is CancellationError {
-                print("DEBUG: MLX generation was cancelled")
-                await MainActor.run {
-                    self.currentResponse = ""
-                    self.isGenerating = false
-                }
-            } catch {
-                print("DEBUG: Error during MLX generation: \(error)")
-                await MainActor.run {
-                    let errorMessage = ChatMessage(content: "Error generating response: \(error.localizedDescription)", isUser: false)
-                    self.messages.append(errorMessage)
-                    
-                    // Notify thread manager of error message
-                    if let threadId = self.threadId, let callback = self.onMessageAdded {
-                        Task {
-                            await callback(threadId, errorMessage)
-                        }
-                    }
-                    
-                    self.currentResponse = ""
-                    self.isGenerating = false
-                }
+        // Choose between local and remote inference
+        if isUsingRemoteInference {
+            generateTask = Task {
+                await performRemoteInference(content: content, model: selectedModel)
+            }
+        } else {
+            generateTask = Task {
+                await performLocalInference(content: content, model: selectedModel)
             }
         }
     }
+    
+    private func performRemoteInference(content: String, model: MLXModel) async {
+        #if os(macOS)
+        guard let networkManager = macOSNetworkManager else {
+            await handleRemoteInferenceFailure(
+                content: content,
+                model: model,
+                error: "Remote inference not available (network manager not initialized)"
+            )
+            return
+        }
+        
+        guard networkManager.isRemoteInferenceAvailable() else {
+            await handleRemoteInferenceFailure(
+                content: content,
+                model: model,
+                error: "No remote device available for inference"
+            )
+            return
+        }
+        
+        do {
+            print("DEBUG: Starting remote MLX inference...")
+            print("DEBUG: Model identifier: \(model.identifier)")
+            
+            let response = try await networkManager.performRemoteInference(
+                prompt: content,
+                modelIdentifier: model.identifier,
+                parameters: InferenceParameters()
+            )
+            
+            print("DEBUG: Remote inference completed, response: '\(response)'")
+            
+            // Update UI with the complete response
+            await MainActor.run {
+                if !Task.isCancelled {
+                    let aiMessage = ChatMessage(content: response.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
+                    self.messages.append(aiMessage)
+                    
+                    // Notify thread manager of AI response
+                    if let threadId = self.threadId, let callback = self.onMessageAdded {
+                        Task {
+                            await callback(threadId, aiMessage)
+                        }
+                    }
+                    
+                    self.currentResponse = ""
+                    self.isGenerating = false
+                    print("DEBUG: Remote inference completed successfully")
+                }
+            }
+            
+        } catch {
+            print("DEBUG: Error during remote inference: \(error)")
+            await handleRemoteInferenceFailure(
+                content: content,
+                model: model,
+                error: "Remote inference failed: \(error.localizedDescription)"
+            )
+        }
+        #else
+        await handleRemoteInferenceFailure(
+            content: content,
+            model: model,
+            error: "Remote inference not supported on this platform"
+        )
+        #endif
+    }
+    
+    private func handleRemoteInferenceFailure(content: String, model: MLXModel, error: String) async {
+        print("DEBUG: Remote inference failed, attempting fallback to local inference")
+        
+        // Check if we can fallback to local inference
+        if downloadManager.getDownloadState(for: model) == .completed {
+            await MainActor.run {
+                // Show fallback message
+                let fallbackMessage = ChatMessage(
+                    content: "⚠️ Remote inference failed, falling back to local processing...", 
+                    isUser: false
+                )
+                self.messages.append(fallbackMessage)
+                
+                // Notify thread manager
+                if let threadId = self.threadId, let callback = self.onMessageAdded {
+                    Task {
+                        await callback(threadId, fallbackMessage)
+                    }
+                }
+                
+                // Disable remote inference temporarily
+                self.enableRemoteInference(nil)
+            }
+            
+            // Attempt local inference
+            await performLocalInference(content: content, model: model)
+            
+        } else {
+            // No fallback available
+            await handleInferenceError("\(error). Local model not available for fallback.")
+        }
+    }
+    
+    private func performLocalInference(content: String, model: MLXModel) async {
+        // Check if model is downloaded
+        guard downloadManager.getDownloadState(for: model) == .completed else {
+            await handleInferenceError("Please download the \(model.name) model first.")
+            return
+        }
+        
+        guard let session = chatSession else {
+            await handleInferenceError("Model is not loaded. Please try selecting the model again.")
+            return
+        }
+        
+        // Start local MLX text generation
+        do {
+            print("DEBUG: Starting local MLX text generation...")
+            print("DEBUG: Model identifier: \(model.identifier)")
+            print("DEBUG: ChatSession exists: true")
+            
+            // Try a simple test first - see if the model can do basic operations
+            let testArray = MLXArray([1.0, 2.0, 3.0])
+            print("DEBUG: Test MLX array: \(testArray)")
+            
+            // Use ChatSession to generate response - fixed with proper ModelConfiguration
+            print("DEBUG: About to call session.respond(to:)")
+            
+            // Format the prompt according to model requirements
+            let formattedPrompt: String
+            if model.identifier.contains("SmolLM") {
+                // SmolLM uses ChatML format with <|im_start|> and <|im_end|> tokens
+                formattedPrompt = "<|im_start|>user\n\(content)<|im_end|>\n<|im_start|>assistant\n"
+                print("DEBUG: SmolLM formatted prompt: \(formattedPrompt)")
+            } else {
+                // Use default formatting for other models
+                formattedPrompt = content
+            }
+            
+            // Add timeout to prevent indefinite hanging
+            let response = try await withTimeout(seconds: 30.0) {
+                return try await session.respond(to: formattedPrompt)
+            }
+            
+            print("DEBUG: Local MLX generation completed, response: '\(response)'")
+            
+            // Update UI with the complete response
+            await MainActor.run {
+                if !Task.isCancelled {
+                    let aiMessage = ChatMessage(content: response.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
+                    self.messages.append(aiMessage)
+                    
+                    // Notify thread manager of AI response
+                    if let threadId = self.threadId, let callback = self.onMessageAdded {
+                        Task {
+                            await callback(threadId, aiMessage)
+                        }
+                    }
+                    
+                    self.currentResponse = ""
+                    self.isGenerating = false
+                    print("DEBUG: Local MLX generation completed successfully")
+                }
+            }
+            
+        } catch is TimeoutError {
+            print("DEBUG: MLX generation timed out - this suggests session.respond(to:) is hanging")
+            await handleInferenceError("⚠️ Generation timed out. The MLX model may not be responding correctly.")
+        } catch is CancellationError {
+            print("DEBUG: MLX generation was cancelled")
+            await MainActor.run {
+                self.currentResponse = ""
+                self.isGenerating = false
+            }
+        } catch {
+            print("DEBUG: Error during local MLX generation: \(error)")
+            await handleInferenceError("Error generating response: \(error.localizedDescription)")
+        }
+    }
+    
+    private func handleInferenceError(_ message: String) async {
+        await MainActor.run {
+            let errorMessage = ChatMessage(content: message, isUser: false)
+            self.messages.append(errorMessage)
+            
+            // Notify thread manager of error message
+            if let threadId = self.threadId, let callback = self.onMessageAdded {
+                Task {
+                    await callback(threadId, errorMessage)
+                }
+            }
+            
+            self.currentResponse = ""
+            self.isGenerating = false
+        }
+    }
+    
+    // MARK: - Remote Inference Management
+    
+    func enableRemoteInference(_ device: RemoteMLXDevice?) {
+        selectedRemoteDevice = device
+        isUsingRemoteInference = device != nil
+        
+        if let device = device {
+            remoteInferenceStatus = "Connected to \(device.name)"
+            modelInfo = "Using remote device: \(device.name)"
+            
+            // Start monitoring connection
+            startConnectionMonitoring()
+        } else {
+            remoteInferenceStatus = "Not connected"
+            if let model = selectedModel {
+                modelInfo = "Model \(model.name) loaded locally"
+            } else {
+                modelInfo = "No model loaded"
+            }
+            
+            // Stop monitoring when not using remote inference
+            stopConnectionMonitoring()
+        }
+    }
+    
+    private var connectionMonitorTask: Task<Void, Never>?
+    
+    private func startConnectionMonitoring() {
+        stopConnectionMonitoring() // Stop any existing monitoring
+        
+        connectionMonitorTask = Task {
+            while !Task.isCancelled && isUsingRemoteInference {
+                await checkConnectionHealth()
+                
+                // Check every 10 seconds
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+            }
+        }
+    }
+    
+    private func stopConnectionMonitoring() {
+        connectionMonitorTask?.cancel()
+        connectionMonitorTask = nil
+    }
+    
+    private func checkConnectionHealth() async {
+        #if os(macOS)
+        guard let networkManager = macOSNetworkManager,
+              let remoteDevice = selectedRemoteDevice else {
+            return
+        }
+        
+        // Check if the device is still connected
+        if !remoteDevice.isConnected || !networkManager.connectedPeers.contains(remoteDevice.peerID) {
+            await MainActor.run {
+                print("DEBUG: Remote device disconnected, disabling remote inference")
+                self.enableRemoteInference(nil)
+                
+                // Update status
+                self.remoteInferenceStatus = "Connection lost"
+                
+                // Optionally show a message to the user
+                if !self.messages.isEmpty {
+                    let disconnectMessage = ChatMessage(
+                        content: "📱 Remote device disconnected. Switched to local inference.",
+                        isUser: false
+                    )
+                    self.messages.append(disconnectMessage)
+                    
+                    // Notify thread manager
+                    if let threadId = self.threadId, let callback = self.onMessageAdded {
+                        Task {
+                            await callback(threadId, disconnectMessage)
+                        }
+                    }
+                }
+            }
+        }
+        #endif
+    }
+    
+    func initializeNetworking() {
+        print("DEBUG: ChatManager.initializeNetworking() called")
+        #if os(iOS)
+        print("DEBUG: Creating iOSMLXNetworkManager")
+        iosNetworkManager = iOSMLXNetworkManager()
+        print("DEBUG: iOSMLXNetworkManager created successfully")
+        #elseif os(macOS)
+        print("DEBUG: Creating macOSMLXNetworkManager")
+        macOSNetworkManager = macOSMLXNetworkManager()
+        print("DEBUG: macOSMLXNetworkManager created successfully")
+        #endif
+    }
+    
+    func startNetworkServices() {
+        print("DEBUG: ChatManager.startNetworkServices() called")
+        #if os(iOS)
+        print("DEBUG: Starting iOS inference server...")
+        if let manager = iosNetworkManager {
+            print("DEBUG: iOS network manager exists, calling startInferenceServer()")
+            manager.startInferenceServer()
+            print("DEBUG: iOS inference server start command completed")
+        } else {
+            print("DEBUG: ERROR - iOS network manager is nil!")
+        }
+        #elseif os(macOS)
+        print("DEBUG: Starting macOS device discovery...")
+        if let manager = macOSNetworkManager {
+            print("DEBUG: macOS network manager exists, calling startDeviceDiscovery()")
+            manager.startDeviceDiscovery()
+            print("DEBUG: macOS device discovery start command completed")
+        } else {
+            print("DEBUG: ERROR - macOS network manager is nil!")
+        }
+        #endif
+    }
+    
+    func stopNetworkServices() {
+        print("DEBUG: ChatManager.stopNetworkServices() called")
+        #if os(iOS)
+        print("DEBUG: Stopping iOS inference server...")
+        iosNetworkManager?.stopInferenceServer()
+        #elseif os(macOS)
+        print("DEBUG: Stopping macOS device discovery...")
+        macOSNetworkManager?.stopDeviceDiscovery()
+        #endif
+    }
+    
+    func getAvailableRemoteDevices() -> [RemoteMLXDevice] {
+        #if os(macOS)
+        return macOSNetworkManager?.discoveredDevices ?? []
+        #else
+        return []
+        #endif
+    }
+    
+    func getNetworkManager() -> MultipeerManager? {
+        #if os(iOS)
+        return iosNetworkManager
+        #elseif os(macOS)
+        return macOSNetworkManager
+        #else
+        return nil
+        #endif
+    }
+    
     
     func stopGeneration() {
         generateTask?.cancel()

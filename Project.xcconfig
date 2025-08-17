@@ -1,0 +1,4 @@
+// Configuration for both iOS and macOS
+INFOPLIST_KEY_NSBonjourServices = _mlxai._tcp;
+INFOPLIST_KEY_NSLocalNetworkUsageDescription = This app uses the local network to discover and connect to other devices for MLX inference processing.
+INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = This app uses Bluetooth to discover and connect to nearby devices for MLX inference processing.

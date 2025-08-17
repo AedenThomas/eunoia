@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct ModelDownloadInterface: View {
     @ObservedObject var downloadManager: ModelDownloadManager
@@ -46,7 +49,11 @@ struct ModelDownloadInterface: View {
                 .padding(.vertical, 24)
             }
         }
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
     }
     
     private var header: some View {
@@ -82,7 +89,11 @@ struct ModelDownloadInterface: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .overlay(
             Rectangle()
                 .fill(Color.gray.opacity(0.3))
@@ -177,7 +188,11 @@ struct ModelCard: View {
             }
         }
         .padding(16)
-        .background(Color(.controlBackgroundColor))
+        #if os(macOS)
+        .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
