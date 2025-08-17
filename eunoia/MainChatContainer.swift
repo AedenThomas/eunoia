@@ -14,7 +14,19 @@ class DownloadModalManager: ObservableObject {
     
     func openDownloadModal() {
         print("DEBUG: DownloadModalManager.openDownloadModal() - Setting showDownloadModal to true")
-        self.showDownloadModal = true
+        // First, set to false to reset any potential stale state
+        self.showDownloadModal = false
+        
+        // Then set to true after a short delay to ensure proper view updates
+        DispatchQueue.main.async {
+            self.showDownloadModal = true
+            print("DEBUG: DownloadModalManager - showDownloadModal set to true")
+        }
+    }
+    
+    func closeDownloadModal() {
+        print("DEBUG: DownloadModalManager.closeDownloadModal()")
+        self.showDownloadModal = false
     }
 }
 

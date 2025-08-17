@@ -6,9 +6,8 @@ import AppKit
 struct ModelSelectorBar: View {
     @ObservedObject var chatManager: ChatManager
     @ObservedObject var downloadManager: ModelDownloadManager
-    @StateObject private var downloadModalManager = DownloadModalManager.shared
+    @ObservedObject private var downloadModalManager = DownloadModalManager.shared
     @State private var showingModelDropdown = false
-    @State private var showingDownloadModal = false
     @State private var isHovered = false
     
     private let models = ModelRegistry.availableModels
@@ -16,7 +15,7 @@ struct ModelSelectorBar: View {
     // Add a public method to show the download modal
     func showDownloadModal() {
         print("DEBUG: ModelSelectorBar.showDownloadModal() called")
-        self.showingDownloadModal = true
+        downloadModalManager.openDownloadModal()
     }
     
     var downloadedModels: [MLXModel] {
@@ -125,10 +124,17 @@ struct ModelSelectorBar: View {
                 // Show setup options when no models or devices are available
                 Button(action: {
                     print("DEBUG: Download models button clicked in ModelSelectorBar")
+                    print("DEBUG: Opening download modal via downloadModalManager.openDownloadModal()")
                     // Initialize networking first
                     chatManager.initializeNetworking()
                     chatManager.startNetworkServices()
-                    downloadModalManager.openDownloadModal()
+                    
+                    // Important: Introduce slight delay before showing modal
+                    // This ensures the view update cycle completes first
+                    DispatchQueue.main.async {
+                        downloadModalManager.openDownloadModal()
+                        print("DEBUG: downloadModalManager.showDownloadModal is now: \(downloadModalManager.showDownloadModal)")
+                    }
                 }) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -289,10 +295,18 @@ struct ModelSelectorBar: View {
                     .padding(.vertical, 4)
                 
                 Button(action: {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        showingModelDropdown = false
+                    print("DEBUG: Download More Models button clicked inside dropdown")
+                    // First call openDownloadModal
+                    downloadModalManager.openDownloadModal()
+                    print("DEBUG: After openDownloadModal(), showDownloadModal = \(downloadModalManager.showDownloadModal)")
+                    
+                    // Then close the dropdown with a slight delay to ensure modal shows first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            showingModelDropdown = false
+                            print("DEBUG: Dropdown closed, showingModelDropdown = \(showingModelDropdown)")
+                        }
                     }
-                    showingDownloadModal = true
                 }) {
                     HStack {
                         Image(systemName: "arrow.down.circle")
