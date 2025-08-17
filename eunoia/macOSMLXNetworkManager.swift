@@ -305,7 +305,8 @@ class macOSMLXNetworkManager: MultipeerManager {
             
             // BUGFIX: Set up a notification observer for responses
             let notificationName = Notification.Name("MLXInferenceResponseReceived-\(request.id.uuidString)")
-            NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] notification in
+            var observer: NSObjectProtocol?
+            observer = NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] notification in
                 guard let self = self else { return }
                 
                 Task {
@@ -321,6 +322,9 @@ class macOSMLXNetworkManager: MultipeerManager {
                             await completionStatus.markCompleted()
                             continuation.resume(returning: responseContent)
                         }
+                    }
+                    if let obs = observer {
+                        NotificationCenter.default.removeObserver(obs)
                     }
                 }
             }
@@ -345,19 +349,14 @@ class macOSMLXNetworkManager: MultipeerManager {
                         switch result {
                         case .success(let response):
                             print("DEBUG: Request \(request.id) succeeded with response length: \(response.content.count)")
-                            
-                            // Post notification to ensure all ChatManagers update their state
-                            NotificationCenter.default.post(
-                                name: Notification.Name("MLXInferenceCompleted"),
-                                object: nil,
-                                userInfo: ["requestId": request.id, "content": response.content]
-                            )
-                            
                             continuation.resume(returning: response.content)
                             
-                        case .failure(let error):
-                            print("DEBUG: Request \(request.id) failed with error: \(error.message)")
-                            continuation.resume(throwing: error)
+                        case .failure(let networkError):
+                            print("DEBUG: Request \(request.id) failed with error: \(networkError.message)")
+                            continuation.resume(throwing: networkError)
+                        }
+                        if let obs = observer {
+                           NotificationCenter.default.removeObserver(obs)
                         }
                     }
                 }
@@ -495,14 +494,6 @@ class macOSMLXNetworkManager: MultipeerManager {
             name: Notification.Name("MLXInferenceResponseReceived-\(response.requestId.uuidString)"),
             object: nil,
             userInfo: ["content": response.content]
-        )
-        
-        // Also post the general notification for all ChatManagers to update their state
-        print("DEBUG: BUGFIX: IMMEDIATE BROADCAST - Sending general inference completion notification")
-        NotificationCenter.default.post(
-            name: Notification.Name("MLXInferenceCompleted"),
-            object: nil,
-            userInfo: ["requestId": response.requestId, "content": response.content]
         )
         
         // First, check both request trackers for a match

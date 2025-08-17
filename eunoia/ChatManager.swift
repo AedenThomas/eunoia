@@ -660,9 +660,6 @@ class ChatManager: ObservableObject {
         macOSNetworkManager = macOSMLXNetworkManager()
         print("DEBUG: macOSMLXNetworkManager created successfully")
         #endif
-        
-        // BUGFIX: Set up notification handlers for inference completion
-        setupNotificationHandlers()
     }
     
     func startNetworkServices() {
@@ -779,59 +776,5 @@ class ChatManager: ObservableObject {
     
     func setupThreadCallback(_ callback: @escaping (UUID, ChatMessage) async -> Void) {
         onMessageAdded = callback
-    }
-    
-    // BUGFIX: Add observer for inference completion notifications
-    func setupInferenceCompletionObserver() {
-        // Remove any existing observer first to avoid duplicates
-        NotificationCenter.default.removeObserver(self, name: Notification.Name("MLXInferenceCompleted"), object: nil)
-        
-        // Add observer for inference completion notifications
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInferenceCompletedNotification(_:)),
-            name: Notification.Name("MLXInferenceCompleted"),
-            object: nil
-        )
-        print("DEBUG: BUGFIX: Set up observer for inference completion notifications")
-    }
-    
-    // Call this method when initializing networking
-    func setupNotificationHandlers() {
-        setupInferenceCompletionObserver()
-    }
-    
-    // BUGFIX: Handle inference completed notifications to reset UI state
-    @objc private func handleInferenceCompletedNotification(_ notification: Notification) {
-        print("DEBUG: BUGFIX: ChatManager received MLXInferenceCompleted notification")
-        
-        guard let content = notification.userInfo?["content"] as? String else {
-            print("DEBUG: ERROR: Inference completion notification missing content")
-            return
-        }
-        
-        // Skip if we're not currently generating (already handled by another method)
-        guard isGenerating else {
-            print("DEBUG: BUGFIX: isGenerating already false, skipping notification handling")
-            return
-        }
-        
-        // Create and add the AI message
-        let aiMessage = ChatMessage(content: content.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
-        messages.append(aiMessage)
-        
-        // Notify thread manager of AI response
-        if let threadId = threadId, let callback = onMessageAdded {
-            print("DEBUG: BUGFIX: Notifying thread manager of new message from notification")
-            Task {
-                await callback(threadId, aiMessage)
-            }
-        }
-        
-        // Reset UI state
-        print("DEBUG: BUGFIX: Resetting UI state from notification handler")
-        currentResponse = ""
-        isGenerating = false
-        print("DEBUG: BUGFIX: UI state reset complete")
     }
 }
