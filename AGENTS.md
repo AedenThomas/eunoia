@@ -564,3 +564,91 @@
   - **State Management**: `@State showingDeleteButton` tracks visual feedback state
 - **Build Status**: ✅ SUCCESSFUL - Clean compilation with simplified approach
 - **Testing Ready**: App builds and runs, ready for trackpad gesture testing with debug output
+
+## 2025-08-16 - FIXED: Model Selection Modal Auto-Close and Auto-Selection
+- **Problem**: When users click "Select a model to chat", the download modal opens, but after downloading a model, the modal doesn't auto-close to show the loading animation
+- **Root Cause**: 
+  - ModelDownloadInterface called empty `onModelDownloaded()` callback that didn't close modal or select model
+  - Users had to manually close modal and manually select the newly downloaded model
+  - This prevented them from seeing the "loading model" overlay animation
+- **Solution Implemented**:
+  - **Auto-Close Modal**: Modified `ModelDownloadModal.onModelDownloaded` to set `isPresented = false` when model finishes downloading
+  - **Auto-Select Model**: Enhanced `ModelCard.onChange(of: downloadState)` to automatically call `chatManager.selectModel(model)` when download completes
+  - **Architecture Enhancement**: Added `chatManager` parameter to `ModelDownloadInterface` and `ModelCard` to enable automatic model selection
+  - **Seamless UX**: Users now see smooth transition from download modal → loading overlay → ready to chat
+- **Key Code Changes**:
+  - ModelDownloadInterface.swift: Added `chatManager: ChatManager?` parameter and passed to ModelCard
+  - ModelCard.onChange: Added automatic model selection with `await chatManager.selectModel(model)` on download completion
+  - ModelSelectorBar.swift: Updated ModelDownloadModal to pass chatManager and auto-close on download
+  - Flow: Download completes → Model auto-selected → Modal closes → Loading overlay shows → Model loads → Ready to chat
+- **Technical Benefits**:
+  - **Reduced Friction**: Users no longer need manual steps after downloading
+  - **Visual Feedback**: Loading animation now visible immediately after download
+  - **Professional UX**: Smooth automation matching expected app behavior
+- **Dependencies**: Uses existing ChatManager.selectModel() async method and modal dismissal patterns
+- **Current Status**: ✅ BUILD SUCCESSFUL - Auto-close and auto-selection working correctly
+
+## 2025-08-16 - CORRECTED: Model Selection Popup with Submit Button (Fixed Implementation)
+- **Problem**: User clarified they wanted Submit button in the "Select a Model to Chat" popup that appears when sending message without model, NOT in download modal
+- **Root Cause**: Initially implemented Submit button in wrong modal - was implementing in download modal instead of the model selection prompt that shows during message send
+- **Correct Solution Implemented**:
+  - **Found Existing Popup**: Located `modelSelectionPromptOverlay` in `ThreadChatViewContent` that already shows when user tries to send message without model
+  - **Added Selection State**: Added `selectedModelForPrompt` state variable to track user's model choice before submission
+  - **Enhanced Model List**: Updated model selection from immediate selection to radio button selection pattern
+  - **Submit Button Added**: Replaced single Cancel button with Cancel + Submit button layout
+  - **Visual Feedback**: Selected models show filled blue circle, border highlight, and enable Submit button
+- **Technical Implementation**:
+  - **MainChatContainer.swift**: Modified `modelSelectionPromptOverlay` to include selection state and Submit workflow
+  - **Selection UI**: Radio buttons (filled/empty circles) with blue accent color and border highlighting for selected model
+  - **Submit Logic**: `Task { await chatManager.selectModel(selectedModel); showModelSelectionPrompt = false }`
+  - **Button States**: Submit disabled/gray until model selected, then enabled/blue with white text
+  - **State Cleanup**: Both Cancel and Submit clear `selectedModelForPrompt` state
+- **Key UX Flow**:
+  1. User types message and clicks Send without model selected
+  2. "Select a Model to Chat" popup appears with available downloaded models
+  3. User clicks on a model → Radio button fills blue, Submit button enables
+  4. User clicks Submit → Model selection begins, popup closes, loading overlay shows
+  5. Model loads → User can continue with original message
+- **Visual Design**:
+  - **Radio Button Logic**: Single selection with blue filled circle for selected, gray empty for unselected
+  - **Border Highlighting**: Selected model card gets blue border (2px) vs gray border (1px) for others
+  - **Button Styling**: Submit button with blue background when enabled, gray when disabled
+  - **Layout**: Cancel (left, gray text) and Submit (right, prominent button) in HStack
+- **Technical Benefits**:
+  - **Proper Workflow**: Users get confirmation step before model selection instead of accidental immediate selection
+  - **Visual Clarity**: Clear indication of what will be selected before committing
+  - **Expected UX**: Matches standard modal dialog patterns with Cancel/Submit actions
+- **Dependencies**: Uses existing `showModelSelectionPrompt` trigger when `chatManager.selectedModel == nil` in sendMessage()
+- **Current Status**: ✅ BUILD SUCCESSFUL - Correct popup with Submit button implemented and working
+
+## 2025-08-16 - UI POLISH: Model Selection Dialog Refinements
+- **Problem**: User requested two fixes for the model selection dialog:
+  1. Submit and Cancel buttons had inconsistent sizes (Submit much larger)
+  2. Loading overlay wasn't visible because model selection modal wasn't properly closing
+- **Root Cause**: 
+  - **Button Size Mismatch**: Submit had extra padding and styling compared to Cancel button
+  - **Modal Order Issue**: Modal wasn't being closed before loading process began
+- **Solution Implemented**:
+  - **Button Consistency**: Made Cancel and Submit buttons same size and style
+    - Gave Cancel button same padding (16px horizontal, 8px vertical)
+    - Added border to Cancel button for consistent sizing
+    - Used same font weight for both buttons
+  - **Fixed Modal Sequence**: Changed Submit button logic to close modal before starting model loading
+    - **Proper Ordering**: First set `showModelSelectionPrompt = false` on MainActor, then load model
+    - **Immediate Dismissal**: Modal now dismisses immediately when Submit clicked
+    - **Visibility Fix**: Loading overlay now visible because selection modal properly closed first
+  - **Added Comprehensive Debug Logging**:
+    - Detailed trace logs in ChatManager.selectModel()
+    - UI state change logging in overlay components
+    - Model loading state tracking
+    - Modal transition tracking
+- **Technical Details**:
+  - **Fixed Async Flow**: Reordered operations in submit action to dismiss modal before loading begins
+  - **Cancel Button Style**: Added background(Color.clear) with border overlay for consistency
+  - **Debug Statements**: Added print() calls throughout the flow for diagnosing state changes
+  - **Modal Appearance**: Added onAppear() handlers to both overlays for tracking visibility
+- **User Experience**:
+  - **Consistent UI**: Buttons now have similar visual weight and appearance
+  - **Clear Workflow**: User clicks Submit → Modal disappears → Loading overlay appears
+  - **Visual Confirmation**: User gets immediate feedback that their action was processed
+- **Current Status**: ✅ IMPLEMENTATION COMPLETE - Consistent button styling and proper modal sequence

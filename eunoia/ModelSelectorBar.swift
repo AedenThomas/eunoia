@@ -3,11 +3,18 @@ import SwiftUI
 struct ModelSelectorBar: View {
     @ObservedObject var chatManager: ChatManager
     @ObservedObject var downloadManager: ModelDownloadManager
+    @StateObject private var downloadModalManager = DownloadModalManager.shared
     @State private var showingModelDropdown = false
     @State private var showingDownloadModal = false
     @State private var isHovered = false
     
     private let models = ModelRegistry.availableModels
+    
+    // Add a public method to show the download modal
+    func showDownloadModal() {
+        print("DEBUG: ModelSelectorBar.showDownloadModal() called")
+        self.showingDownloadModal = true
+    }
     
     var downloadedModels: [MLXModel] {
         models.filter { downloadManager.getDownloadState(for: $0) == .completed }
@@ -27,8 +34,12 @@ struct ModelSelectorBar: View {
             }
         }
         .animation(.easeOut(duration: 0.3), value: showingModelDropdown)
-        .sheet(isPresented: $showingDownloadModal) {
-            ModelDownloadModal(downloadManager: downloadManager, isPresented: $showingDownloadModal)
+        .sheet(isPresented: $downloadModalManager.showDownloadModal) {
+            ModelDownloadModal(
+                downloadManager: downloadManager, 
+                isPresented: $downloadModalManager.showDownloadModal, 
+                chatManager: chatManager
+            )
         }
     }
     
@@ -72,7 +83,8 @@ struct ModelSelectorBar: View {
             } else {
                 // Show download modal when no models are available
                 Button(action: {
-                    showingDownloadModal = true
+                    print("DEBUG: Download models button clicked in ModelSelectorBar")
+                    downloadModalManager.openDownloadModal()
                 }) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -132,6 +144,7 @@ struct ModelSelectorBar: View {
                             .foregroundColor(Color(hex: 0x007AFF))
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
@@ -206,6 +219,7 @@ struct ModelDropdownRow: View {
 struct ModelDownloadModal: View {
     @ObservedObject var downloadManager: ModelDownloadManager
     @Binding var isPresented: Bool
+    var chatManager: ChatManager
     
     var body: some View {
         VStack(spacing: 0) {
@@ -215,8 +229,10 @@ struct ModelDownloadModal: View {
                     isPresented = false
                 },
                 onModelDownloaded: {
-                    // Don't auto-dismiss when model is downloaded, let user stay and download more
-                }
+                    // Auto-dismiss modal when model is downloaded so user can see the loading screen
+                    isPresented = false
+                },
+                chatManager: chatManager
             )
         }
         .background(Color(.controlBackgroundColor))

@@ -2,6 +2,7 @@ import Foundation
 
 class ModelRegistry {
     static let availableModels: [MLXModel] = [
+        MLXModel(name: "Gemma 3 1b", identifier: "mlx-community/gemma-3-1b-it-qat-4bit", size: "733 MB", description: "Gemma 3 1b"),
         MLXModel(
             name: "Llama 3.2 3B",
             identifier: "mlx-community/Llama-3.2-3B-Instruct-4bit",
@@ -36,7 +37,7 @@ class ModelRegistry {
             name: "CodeLlama 7B",
             identifier: "mlx-community/CodeLlama-7b-Instruct-hf-4bit",
             size: "4.3 GB",
-            description: "Specialized model for code generation and analysis"
+            description: "Specialized models for code generation and analysis"
         ),
         MLXModel(
             name: "Qwen2.5 7B",

@@ -4,12 +4,14 @@ struct ModelDownloadInterface: View {
     @ObservedObject var downloadManager: ModelDownloadManager
     let onBack: () -> Void
     let onModelDownloaded: () -> Void
+    var chatManager: ChatManager? = nil
     
     private let models = ModelRegistry.availableModels
     
     var essentialModels: [MLXModel] {
         [
             models.first { $0.identifier.contains("SmolLM-135M") }!,
+            models.first { $0.identifier.contains("gemma-3-1b-it-qat-4bit") }!,
             models.first { $0.identifier.contains("gemma-3-270m") }!,
             models.first { $0.identifier.contains("Phi-3.5-mini") }!
         ]
@@ -97,7 +99,7 @@ struct ModelDownloadInterface: View {
             
             LazyVStack(spacing: 12) {
                 ForEach(models) { model in
-                    ModelCard(model: model, downloadManager: downloadManager, onDownloaded: onModelDownloaded)
+                    ModelCard(model: model, downloadManager: downloadManager, onDownloaded: onModelDownloaded, chatManager: chatManager)
                 }
             }
         }
@@ -108,6 +110,7 @@ struct ModelCard: View {
     let model: MLXModel
     @ObservedObject var downloadManager: ModelDownloadManager
     let onDownloaded: () -> Void
+    var chatManager: ChatManager? = nil
     @State private var showingDeleteConfirmation = false
     
     private var downloadState: ModelDownloadManager.DownloadState {
@@ -184,6 +187,12 @@ struct ModelCard: View {
         .onChange(of: downloadState) { _, newState in
             if newState == .completed {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    // Automatically select the newly downloaded model
+                    if let chatManager = chatManager {
+                        Task {
+                            await chatManager.selectModel(model)
+                        }
+                    }
                     onDownloaded()
                 }
             }
@@ -204,6 +213,7 @@ struct ModelCard: View {
             Text(buttonText)
                 .font(.system(.subheadline, design: .default, weight: .medium))
                 .foregroundColor(buttonTextColor)
+                .frame(minWidth: 96)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(buttonBackgroundColor)

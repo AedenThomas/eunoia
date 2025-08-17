@@ -44,16 +44,19 @@ class ChatManager: ObservableObject {
     private var generateTask: Task<Void, Never>?
     
     func selectModel(_ model: MLXModel) async {
+        print("DEBUG: selectModel() called with model: \(model.name)")
         selectedModel = model
-        print("Selected model: \(model.name)")
+        print("DEBUG: Set selectedModel = \(model.name)")
         
         // Check if model is downloaded
         guard downloadManager.getDownloadState(for: model) == .completed else {
+            print("DEBUG: Model \(model.name) not downloaded, aborting selection")
             modelInfo = "Model not downloaded"
             return
         }
         
         // Start loading state
+        print("DEBUG: Setting isLoadingModel = true, this should trigger loading overlay")
         isLoadingModel = true
         
         // Load the actual MLX model
@@ -100,7 +103,9 @@ class ChatManager: ObservableObject {
         }
         
         // End loading state
+        print("DEBUG: Model loading completed or failed, setting isLoadingModel = false")
         isLoadingModel = false
+        print("DEBUG: Load model operation finished for \(model.name), isLoadingModel = \(isLoadingModel)")
     }
     
     func sendMessage(_ content: String) {

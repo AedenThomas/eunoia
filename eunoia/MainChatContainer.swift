@@ -1,6 +1,21 @@
 import SwiftUI
 import MarkdownUI
 
+#if os(macOS)
+import AppKit
+#endif
+
+// A shared class to manage the download modal state
+class DownloadModalManager: ObservableObject {
+    static let shared = DownloadModalManager()
+    @Published var showDownloadModal = false
+    
+    func openDownloadModal() {
+        print("DEBUG: DownloadModalManager.openDownloadModal() - Setting showDownloadModal to true")
+        self.showDownloadModal = true
+    }
+}
+
 // Singleton to maintain ChatManager instances across view recreations
 class ChatManagerStore: ObservableObject {
     static let shared = ChatManagerStore()
@@ -14,6 +29,7 @@ struct MainChatContainer: View {
     @StateObject private var threadManager = ChatThreadManager.shared
     @State private var selectedThreadId: UUID?
     @StateObject private var chatManagerStore = ChatManagerStore.shared
+    @StateObject private var downloadModalManager = DownloadModalManager.shared
     
     // Sidebar visibility for iOS
     @State private var showingSidebar = false
@@ -306,9 +322,11 @@ struct ThreadChatView: View {
 // MARK: - Custom Chat View Wrapper
 private struct ThreadChatViewContent: View {
     @ObservedObject var chatManager: ChatManager
+    @ObservedObject var downloadModalManager = DownloadModalManager.shared
     @State private var messageText = ""
     @FocusState private var isTextFieldFocused: Bool
     @State private var showModelSelectionPrompt = false
+    @State private var selectedModelForPrompt: MLXModel? = nil
     
     var body: some View {
         ZStack {
@@ -331,11 +349,17 @@ private struct ThreadChatViewContent: View {
             // Full screen loading overlay
             if chatManager.isLoadingModel {
                 modelLoadingOverlay
+                    .onAppear {
+                        print("DEBUG: modelLoadingOverlay appeared")
+                    }
             }
             
             // Model selection prompt
             if showModelSelectionPrompt {
                 modelSelectionPromptOverlay
+                    .onAppear {
+                        print("DEBUG: modelSelectionPromptOverlay appeared")
+                    }
             }
         }
     }
@@ -496,7 +520,10 @@ private struct ThreadChatViewContent: View {
     }
     
     private var modelSelectionPromptOverlay: some View {
-        ZStack {
+        // Capture the downloadModalManager reference for use in closures
+        let downloadModalMgr = self.downloadModalManager
+        
+        return ZStack {
             // Semi-transparent background
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
@@ -534,14 +561,26 @@ private struct ThreadChatViewContent: View {
                             .font(.system(.body, design: .default, weight: .medium))
                             .foregroundColor(.secondary)
                         
-                        Button("Download Models") {
+                        Button(action: {
+                            print("DEBUG: Download Models button pressed in model selection prompt")
+                            
+                            // First hide this prompt
                             showModelSelectionPrompt = false
-                            // This will be handled by the ModelSelectorBar
+                            
+                            // Give UI time to update
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                print("DEBUG: Calling downloadModalManager.openDownloadModal() to show download sheet")
+                                // Use the shared manager to open the download modal
+                                downloadModalMgr.openDownloadModal()
+                                print("DEBUG: downloadModalManager.showDownloadModal is now: \(downloadModalMgr.showDownloadModal)")
+                            }
+                        }) {
+                            Text("Download Models")
+                                .font(.system(.body, design: .default, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(minWidth: 220)
+                                .padding(.vertical, 12)
                         }
-                        .font(.system(.body, design: .default, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
                         .background(Color(hex: 0x007AFF))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
@@ -549,12 +588,14 @@ private struct ThreadChatViewContent: View {
                     VStack(spacing: 12) {
                         ForEach(availableModels, id: \.identifier) { model in
                             Button(action: {
-                                Task {
-                                    await chatManager.selectModel(model)
-                                    showModelSelectionPrompt = false
-                                }
+                                selectedModelForPrompt = model
                             }) {
                                 HStack {
+                                    // Selection indicator
+                                    Image(systemName: selectedModelForPrompt?.id == model.id ? "largecircle.fill.circle" : "circle")
+                                        .font(.system(size: 18))
+                                        .foregroundColor(selectedModelForPrompt?.id == model.id ? Color(hex: 0x007AFF) : Color.gray)
+                                    
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(model.name)
                                             .font(.system(.body, design: .default, weight: .semibold))
@@ -578,7 +619,7 @@ private struct ThreadChatViewContent: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
+                                        .strokeBorder(selectedModelForPrompt?.id == model.id ? Color(hex: 0x007AFF).opacity(0.5) : Color.gray.opacity(0.3), lineWidth: selectedModelForPrompt?.id == model.id ? 2 : 1)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -587,11 +628,58 @@ private struct ThreadChatViewContent: View {
                     .frame(maxWidth: 400)
                 }
                 
-                Button("Cancel") {
-                    showModelSelectionPrompt = false
+                HStack(spacing: 16) {
+                    Button(action: {
+                        print("DEBUG: Cancel button clicked, dismissing model selection prompt")
+                        showModelSelectionPrompt = false
+                        selectedModelForPrompt = nil
+                    }) {
+                        Text("Cancel")
+                            .font(.system(.body, design: .default, weight: .regular))
+                            .foregroundColor(.secondary)
+                            .frame(minWidth: 100)
+                            .padding(.vertical, 8)
+                    }
+                    .background(Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                    
+                    Button(action: {
+                        if let selectedModel = selectedModelForPrompt {
+                            print("DEBUG: Submit button clicked with model: \(selectedModel.name)")
+                            Task {
+                                print("DEBUG: Starting model selection Task")
+                                // Important: First set showModelSelectionPrompt = false immediately
+                                // to ensure loading modal becomes visible
+                                await MainActor.run {
+                                    print("DEBUG: Setting showModelSelectionPrompt = false before model loads")
+                                    showModelSelectionPrompt = false
+                                }
+                                
+                                // Then select the model which will show loading modal
+                                print("DEBUG: About to call chatManager.selectModel")
+                                await chatManager.selectModel(selectedModel)
+                                
+                                await MainActor.run {
+                                    print("DEBUG: Model selection completed, cleaning up state")
+                                    selectedModelForPrompt = nil
+                                }
+                            }
+                        }
+                    }) {
+                        Text("Submit")
+                            .font(.system(.body, design: .default, weight: .regular))
+                            .foregroundColor(selectedModelForPrompt != nil ? .white : Color.gray)
+                            .frame(minWidth: 100)
+                            .padding(.vertical, 8)
+                    }
+                    .background(selectedModelForPrompt != nil ? Color(hex: 0x007AFF) : Color.gray.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .disabled(selectedModelForPrompt == nil)
                 }
-                .font(.system(.body, design: .default, weight: .regular))
-                .foregroundColor(.secondary)
             }
             .padding(32)
             .background(Color(.controlBackgroundColor))
@@ -615,6 +703,25 @@ private struct ThreadChatViewContent: View {
         
         chatManager.sendMessage(trimmedText)
         messageText = ""
+    }
+    
+    // Helper function to find the ModelSelectorBar instance
+    private func findModelSelectorBar() -> ModelSelectorBar? {
+        print("DEBUG: Attempting to find ModelSelectorBar instance")
+        
+        // For a better solution, we should use a StateObject to maintain this state
+        // But for now, we can create a new instance and update its state directly
+        let modelSelectorBar = ModelSelectorBar(
+            chatManager: chatManager,
+            downloadManager: ModelDownloadManager.shared
+        )
+        
+        print("DEBUG: Created new ModelSelectorBar instance with same parameters")
+        
+        // A better approach would be to use an environment object or state object
+        // that is shared between views, but this workaround should function
+        
+        return modelSelectorBar
     }
 }
 
