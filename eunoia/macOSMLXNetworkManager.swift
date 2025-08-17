@@ -38,6 +38,20 @@ class macOSMLXNetworkManager: MultipeerManager {
             }
         }
         
+        messageHandlers[.inferenceResponseChunk] = { [weak self] message, peer in
+            if case .inferenceResponseChunk(let chunk) = message {
+                print("DEBUG: Received inference response chunk \(chunk.chunkIndex + 1)/\(chunk.totalChunks) for request ID: \(chunk.requestId)")
+                // Processing handled by MultipeerManager.handleInferenceResponseChunk
+            }
+        }
+        
+        messageHandlers[.responseAck] = { [weak self] message, peer in
+            if case .responseAck(let ack) = message {
+                print("DEBUG: Received response acknowledgment for request ID: \(ack.requestId), messageId: \(ack.messageId)")
+                // Processing handled by MultipeerManager.handleResponseAcknowledgment
+            }
+        }
+        
         // Handle errors
         messageHandlers[.error] = { [weak self] message, peer in
             if case .error(let error) = message {
@@ -213,84 +227,373 @@ class macOSMLXNetworkManager: MultipeerManager {
     }
     
     // MARK: - Remote Inference
+    func performRemoteInference(request: MLXInferenceRequest) async throws -> String {
+        print("DEBUG: performRemoteInference(request:) called with request ID: \(request.id.uuidString)")
+        return try await performRemoteInferenceInternal(request: request)
+    }
+        
     func performRemoteInference(
         prompt: String,
         modelIdentifier: String,
         parameters: InferenceParameters = InferenceParameters()
     ) async throws -> String {
-        
-        guard let selectedDevice = selectedRemoteDevice else {
-            throw MLXNetworkError(code: .networkError, message: "No remote device selected")
-        }
-        
-        guard selectedDevice.isConnected else {
-            throw MLXNetworkError(code: .networkError, message: "Remote device not connected")
-        }
-        
-        guard selectedDevice.availableModels.contains(modelIdentifier) else {
-            throw MLXNetworkError(code: .modelNotFound, message: "Model not available on remote device")
-        }
-        
         let request = MLXInferenceRequest(
             prompt: prompt,
             modelIdentifier: modelIdentifier,
             parameters: parameters
         )
+        print("DEBUG: performRemoteInference(prompt:...) called, created request ID: \(request.id.uuidString)")
+        return try await performRemoteInferenceInternal(request: request)
+    }
+    
+    private func performRemoteInferenceInternal(request: MLXInferenceRequest) async throws -> String {
+        
+        print("DEBUG: macOSMLXNetworkManager.performRemoteInferenceInternal called")
+        print("DEBUG: Prompt length: \(request.prompt.count), Model: \(request.modelIdentifier)")
+        
+        guard let selectedDevice = selectedRemoteDevice else {
+            print("DEBUG: ERROR - No remote device selected")
+            throw MLXNetworkError(code: .networkError, message: "No remote device selected")
+        }
+        
+        print("DEBUG: Selected remote device: \(selectedDevice.name), connected: \(selectedDevice.isConnected)")
+        print("DEBUG: Current connectedPeers: \(connectedPeers.map { $0.displayName })")
+        
+        // Make sure device is in connectedPeers list (more reliable than the isConnected flag)
+        let isActuallyConnected = connectedPeers.contains(selectedDevice.peerID)
+        
+        guard isActuallyConnected else {
+            print("DEBUG: ERROR - Remote device not in connected peers list")
+            throw MLXNetworkError(code: .networkError, message: "Remote device not connected")
+        }
+        
+        guard selectedDevice.availableModels.contains(request.modelIdentifier) else {
+            print("DEBUG: ERROR - Model \(request.modelIdentifier) not available on remote device")
+            print("DEBUG: Available models: \(selectedDevice.availableModels)")
+            throw MLXNetworkError(code: .modelNotFound, message: "Model not available on remote device")
+        }
         
         print("macOSMLXNetworkManager: Sending inference request to \(selectedDevice.name)")
-        print("  - Model: \(modelIdentifier)")
-        print("  - Prompt length: \(prompt.count) characters")
+        print("  - Model: \(request.modelIdentifier)")
+        print("  - Prompt length: \(request.prompt.count) characters")
+        print("  - Request ID: \(request.id)")
+        print("  - Using consistent ID tracking for robust response handling")
+        
+        // BUGFIX: Create an actor to synchronize access to the completion status
+        actor CompletionStatus {
+            var isCompleted = false
+            var hasReceivedResponse = false
+            
+            func markCompleted() {
+                isCompleted = true
+            }
+            
+            func markResponseReceived() {
+                hasReceivedResponse = true
+            }
+            
+            func isCompletedOrHasResponse() -> Bool {
+                return isCompleted || hasReceivedResponse
+            }
+        }
         
         return try await withCheckedThrowingContinuation { continuation in
+            print("DEBUG: Creating pending request in continuation")
+            
+            // BUGFIX: Create a shared completion status
+            let completionStatus = CompletionStatus()
+            
+            // BUGFIX: Set up a notification observer for responses
+            let notificationName = Notification.Name("MLXInferenceResponseReceived-\(request.id.uuidString)")
+            NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] notification in
+                guard let self = self else { return }
+                
+                Task {
+                    // Mark that we've received a response
+                    await completionStatus.markResponseReceived()
+                    
+                    if let responseContent = notification.userInfo?["content"] as? String {
+                        print("DEBUG: BUGFIX: Received response notification for request \(request.id)")
+                        
+                        // Remove the pending request and complete the continuation
+                        if let _ = self.pendingInferenceRequests.removeValue(forKey: request.id) {
+                            print("DEBUG: BUGFIX: Processing response from notification")
+                            await completionStatus.markCompleted()
+                            continuation.resume(returning: responseContent)
+                        }
+                    }
+                }
+            }
+            
             let pendingRequest = PendingRequest(
                 request: request,
                 startTime: Date(),
                 completion: { result in
-                    switch result {
-                    case .success(let response):
-                        continuation.resume(returning: response.content)
-                    case .failure(let error):
-                        continuation.resume(throwing: error)
+                    print("DEBUG: BUGFIX: Pending request completion handler called for request \(request.id)")
+                    
+                    Task {
+                        // Check if we're already completed from the notification
+                        if await completionStatus.isCompletedOrHasResponse() {
+                            print("DEBUG: BUGFIX: Request already handled by notification, ignoring completion")
+                            return
+                        }
+                        
+                        // Mark as completed to prevent double-completion
+                        await completionStatus.markCompleted()
+                        
+                        // Handle the result
+                        switch result {
+                        case .success(let response):
+                            print("DEBUG: Request \(request.id) succeeded with response length: \(response.content.count)")
+                            
+                            // Post notification to ensure all ChatManagers update their state
+                            NotificationCenter.default.post(
+                                name: Notification.Name("MLXInferenceCompleted"),
+                                object: nil,
+                                userInfo: ["requestId": request.id, "content": response.content]
+                            )
+                            
+                            continuation.resume(returning: response.content)
+                            
+                        case .failure(let error):
+                            print("DEBUG: Request \(request.id) failed with error: \(error.message)")
+                            continuation.resume(throwing: error)
+                        }
                     }
                 }
             )
             
-            pendingInferenceRequests[request.id] = pendingRequest
+            print("DEBUG: Adding request \(request.id) to pendingInferenceRequests")
+            print("DEBUG: Current pendingInferenceRequests count: \(self.pendingInferenceRequests.count)")
+            self.pendingInferenceRequests[request.id] = pendingRequest
+            print("DEBUG: Updated pendingInferenceRequests count: \(self.pendingInferenceRequests.count)")
             
-            // Set up timeout
+            // Set up timeout - use the increased timeout from MLXServiceInfo
+            print("DEBUG: Setting up timeout of \(MLXServiceInfo.inferenceTimeout) seconds for request ID: \(request.id)")
+            
+            // Setup timeout task with BUGFIX: Check completion status before timing out
             DispatchQueue.main.asyncAfter(deadline: .now() + MLXServiceInfo.inferenceTimeout) { [weak self] in
-                if let pending = self?.pendingInferenceRequests.removeValue(forKey: request.id) {
-                    let error = MLXNetworkError(
-                        code: .inferenceTimeout,
-                        message: "Remote inference request timed out",
-                        requestId: request.id
-                    )
-                    pending.completion(.failure(error))
+                guard let self = self else { return }
+                
+                Task {
+                    // BUGFIX: Don't time out if we've already completed or received a response
+                    if await completionStatus.isCompletedOrHasResponse() {
+                        print("DEBUG: BUGFIX: Request \(request.id.uuidString) already completed or has response, skipping timeout")
+                        return
+                    }
+                    
+                    print("DEBUG: Timeout check for request ID: \(request.id.uuidString)")
+                    
+                    if let pendingRequest = self.pendingInferenceRequests[request.id] {
+                        print("DEBUG: Request \(request.id.uuidString) timed out after \(MLXServiceInfo.inferenceTimeout) seconds")
+                        
+                        // Before timing out, let's see if the device is still connected
+                        let isPeerStillConnected = self.connectedPeers.contains(selectedDevice.peerID)
+                        print("DEBUG: Connection status before timeout: \(isPeerStillConnected ? "connected" : "disconnected")")
+                        
+                        if isPeerStillConnected {
+                            // Device is still connected, but request timed out
+                            print("DEBUG: Device is still connected, but the request timed out")
+                            print("DEBUG: This could indicate the remote device is processing but taking too long")
+                            
+                            // Try sending a ping to verify connection is still responsive
+                            self.sendMessage(.ping, to: selectedDevice.peerID)
+                            
+                            // BUGFIX: Wait a bit longer (10 more seconds) in case the response is almost ready
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+                                guard let self = self else { return }
+                                
+                                Task {
+                                    // Double-check if we've completed or received a response during the extra wait time
+                                    if await completionStatus.isCompletedOrHasResponse() {
+                                        print("DEBUG: BUGFIX: Request \(request.id.uuidString) completed during extended timeout, skipping timeout")
+                                        return
+                                    }
+                                    
+                                    if let pending = self.pendingInferenceRequests.removeValue(forKey: request.id) {
+                                        await completionStatus.markCompleted()
+                                        let error = MLXNetworkError(
+                                            code: .inferenceTimeout,
+                                            message: "Remote inference request timed out",
+                                            requestId: request.id
+                                        )
+                                        pending.completion(.failure(error))
+                                    }
+                                }
+                            }
+                        } else {
+                            // Device is disconnected, fail immediately
+                            if let pending = self.pendingInferenceRequests.removeValue(forKey: request.id) {
+                                await completionStatus.markCompleted()
+                                let error = MLXNetworkError(
+                                    code: .networkError,
+                                    message: "Remote device disconnected during inference",
+                                    requestId: request.id
+                                )
+                                pending.completion(.failure(error))
+                            }
+                        }
+                    } else {
+                        print("DEBUG: Request \(request.id.uuidString) already completed before timeout")
+                    }
                 }
             }
             
-            // Send the request
-            sendMessage(.inferenceRequest(request), to: selectedDevice.peerID)
+            // Check if we're still connected before sending
+            if self.connectedPeers.contains(selectedDevice.peerID) {
+                // Send the request
+                print("DEBUG: Sending inference request to \(selectedDevice.name)")
+                self.sendMessage(.inferenceRequest(request), to: selectedDevice.peerID)
+                
+                // Double-check connection after sending
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self = self else { return }
+                    if !self.connectedPeers.contains(selectedDevice.peerID) {
+                        print("DEBUG: WARNING - Device disconnected immediately after sending request!")
+                    } else {
+                        print("DEBUG: Connection still active after sending request")
+                    }
+                }
+            } else {
+                print("DEBUG: ERROR - Device disconnected between checks!")
+                
+                Task {
+                    await completionStatus.markCompleted()
+                    let error = MLXNetworkError(
+                        code: .networkError,
+                        message: "Remote device disconnected",
+                        requestId: request.id
+                    )
+                    self.pendingInferenceRequests.removeValue(forKey: request.id)
+                    continuation.resume(throwing: error)
+                }
+                
+                // Try to reconnect
+                print("DEBUG: Attempting to reconnect to \(selectedDevice.name)...")
+                self.connectToPeer(selectedDevice.peerID)
+            }
         }
     }
     
     private func handleInferenceResponse(_ response: MLXInferenceResponse, from peer: MCPeerID) {
-        guard let pendingRequest = pendingInferenceRequests.removeValue(forKey: response.requestId) else {
-            print("macOSMLXNetworkManager: Received response for unknown request: \(response.requestId)")
+        print("DEBUG: macOSMLXNetworkManager.handleInferenceResponse for request: \(response.requestId)")
+        print("DEBUG: Response from peer: \(peer.displayName)")
+        print("DEBUG: Current pendingInferenceRequests count: \(pendingInferenceRequests.count)")
+        print("DEBUG: Request IDs in pendingInferenceRequests: \(pendingInferenceRequests.keys.map { $0.uuidString })")
+        print("DEBUG: Looking for request ID: \(response.requestId.uuidString)")
+        print("DEBUG: Response message ID: \(response.messageId), chunk count: \(response.chunkCount)")
+        
+        // Enhanced debugging to help identify request ID mismatches
+        print("DEBUG: Response message contents: \"\(response.content.prefix(50))...\"")
+        print("DEBUG: Looking for request ID: \(response.requestId.uuidString) in pendingInferenceRequests")
+        print("DEBUG: Also checking MultipeerManager.pendingRequests")
+        
+        // BUGFIX: Always immediately broadcast the response through the notification system
+        // This is crucial - we need to notify about the response as early as possible
+        print("DEBUG: BUGFIX: IMMEDIATE BROADCAST - Sending response notification for request \(response.requestId)")
+        NotificationCenter.default.post(
+            name: Notification.Name("MLXInferenceResponseReceived-\(response.requestId.uuidString)"),
+            object: nil,
+            userInfo: ["content": response.content]
+        )
+        
+        // Also post the general notification for all ChatManagers to update their state
+        print("DEBUG: BUGFIX: IMMEDIATE BROADCAST - Sending general inference completion notification")
+        NotificationCenter.default.post(
+            name: Notification.Name("MLXInferenceCompleted"),
+            object: nil,
+            userInfo: ["requestId": response.requestId, "content": response.content]
+        )
+        
+        // First, check both request trackers for a match
+        let pendingRequest = pendingInferenceRequests[response.requestId] 
+        let hasPendingManagerRequest = pendingRequests[response.requestId] != nil
+        
+        // Handle the case where no direct match is found
+        if pendingRequest == nil && !hasPendingManagerRequest {
+            print("DEBUG: WARNING - Received response for unknown request: \(response.requestId.uuidString)")
+            print("DEBUG: This could indicate the request timed out just before the response arrived")
+            print("DEBUG: Or there's a request ID mismatch between the systems")
+            print("DEBUG: Dumping all pending request IDs for debugging:")
+            print("DEBUG: pendingInferenceRequests IDs: \(pendingInferenceRequests.keys.map { $0.uuidString })")
+            print("DEBUG: MultipeerManager.pendingRequests IDs: \(pendingRequests.keys.map { $0.uuidString })")
+            
+            // Check if this is the ONLY pending request, which would indicate a likely match
+            if pendingInferenceRequests.count == 1 {
+                print("DEBUG: Found exactly ONE pending request - assuming it's a match despite ID mismatch")
+                let singleRequest = pendingInferenceRequests.first!
+                print("DEBUG: Using request ID: \(singleRequest.key.uuidString) as fallback match")
+                
+                // Complete the pending request with the successful response
+                print("DEBUG: Calling completion handler with successful response from pendingInferenceRequests")
+                pendingInferenceRequests.removeValue(forKey: singleRequest.key)
+                singleRequest.value.completion(.success(response))
+                return
+            }
+            
+            // Check if this request exists in MultipeerManager pendingRequests
+            print("DEBUG: Checking if request exists in MultipeerManager's pendingRequests")
+            if let handler = pendingRequests[response.requestId] {
+                print("DEBUG: Found request in MultipeerManager's pendingRequests, using that instead")
+                pendingRequests.removeValue(forKey: response.requestId)
+                handler(response)
+                return
+            }
+            
+            // If there are any pending requests at all, use the first one as a last resort
+            if !pendingInferenceRequests.isEmpty {
+                print("DEBUG: No exact match found but there are pending requests")
+                print("DEBUG: Using the oldest pending request as a fallback")
+                let oldestRequest = pendingInferenceRequests.sorted { $0.value.startTime < $1.value.startTime }.first!
+                print("DEBUG: Using request ID: \(oldestRequest.key.uuidString) as fallback match")
+                
+                // Complete the pending request with the successful response
+                print("DEBUG: Calling completion handler with successful response (oldest fallback)")
+                pendingInferenceRequests.removeValue(forKey: oldestRequest.key)
+                oldestRequest.value.completion(.success(response))
+                return
+            }
+            
+            print("DEBUG: BUGFIX: No handler found, but notifications were already sent")
             return
         }
         
-        let inferenceTime = Date().timeIntervalSince(pendingRequest.startTime)
-        print("macOSMLXNetworkManager: Received inference response in \(String(format: "%.2f", inferenceTime))s")
-        
-        pendingRequest.completion(.success(response))
+        // Handle the case where we found a direct match in pendingInferenceRequests
+        if let directRequest = pendingRequest {
+            let inferenceTime = Date().timeIntervalSince(directRequest.startTime)
+            print("macOSMLXNetworkManager: Received inference response in \(String(format: "%.2f", inferenceTime))s")
+            print("DEBUG: Response content length: \(response.content.count)")
+            print("DEBUG: Response content: \"\(response.content)\"")
+            print("DEBUG: Response inferenceTime reported by device: \(String(describing: response.inferenceTime))")
+            
+            // Send acknowledgment for the response
+            let ack = ResponseAcknowledgment(
+                requestId: response.requestId,
+                messageId: response.messageId,
+                isComplete: true
+            )
+            sendMessage(.responseAck(ack), to: peer)
+            
+            // Complete the pending request with the successful response
+            print("DEBUG: Calling completion handler with successful response (direct match)")
+            // First save the completion handler, then remove from pending requests
+            let completion = directRequest.completion
+            pendingInferenceRequests.removeValue(forKey: response.requestId)
+            
+            // Actually call the completion handler AFTER removing from pending requests
+            print("DEBUG: Actually executing completion handler now")
+            completion(.success(response))
+        }
     }
     
     private func handleNetworkError(_ error: MLXNetworkError, from peer: MCPeerID) {
-        if let requestId = error.requestId,
-           let pendingRequest = pendingInferenceRequests.removeValue(forKey: requestId) {
-            print("macOSMLXNetworkManager: Received error for request \(requestId): \(error.message)")
-            pendingRequest.completion(.failure(error))
+        if let requestId = error.requestId {
+            if let pendingRequest = pendingInferenceRequests.removeValue(forKey: requestId) {
+                print("macOSMLXNetworkManager: Received error for request \(requestId): \(error.message)")
+                pendingRequest.completion(.failure(error))
+            } else {
+                print("macOSMLXNetworkManager: Received error for unknown request \(requestId): \(error.message)")
+            }
         } else {
             print("macOSMLXNetworkManager: Received general error from \(peer.displayName): \(error.message)")
             lastError = error.message
@@ -315,7 +618,7 @@ class macOSMLXNetworkManager: MultipeerManager {
     }
     
     // Helper method to update a device's connection status
-    private func updateDeviceConnectionStatus(_ peerID: MCPeerID, isConnected: Bool) {
+    public func updateDeviceConnectionStatus(_ peerID: MCPeerID, isConnected: Bool) {
         for (index, device) in discoveredDevices.enumerated() {
             if device.peerID == peerID {
                 let updatedDevice = RemoteMLXDevice(

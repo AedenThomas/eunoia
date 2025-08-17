@@ -29,7 +29,11 @@ struct TimeoutError: Error {
 @MainActor
 class ChatManager: ObservableObject {
     @Published var messages: [ChatMessage] = []
-    @Published var isGenerating = false
+    @Published var isGenerating = false {
+        didSet {
+            print("DEBUG: isGenerating changed from \(oldValue) to \(isGenerating)")
+        }
+    }
     @Published var isLoadingModel = false
     @Published var selectedModel: MLXModel?
     @Published var currentResponse = ""
@@ -183,7 +187,11 @@ class ChatManager: ObservableObject {
     
     private func performRemoteInference(content: String, model: MLXModel?) async {
         #if os(macOS)
+        print("DEBUG: ChatManager.performRemoteInference called with content length: \(content.count)")
+        print("DEBUG: Using model: \(model?.name ?? "nil"), remote device: \(selectedRemoteDevice?.name ?? "nil")")
+        
         guard let networkManager = macOSNetworkManager else {
+            print("DEBUG: ERROR - Network manager not initialized")
             await handleRemoteInferenceFailure(
                 content: content,
                 model: model,
@@ -192,7 +200,12 @@ class ChatManager: ObservableObject {
             return
         }
         
-        guard networkManager.isRemoteInferenceAvailable() else {
+        // Double-check connection status with enhanced logging
+        guard let remoteDevice = selectedRemoteDevice, remoteDevice.isConnected else {
+            print("DEBUG: ERROR - Remote device not connected or not selected")
+            print("DEBUG: selectedRemoteDevice: \(selectedRemoteDevice?.name ?? "nil"), isConnected: \(selectedRemoteDevice?.isConnected ?? false)")
+            print("DEBUG: Current connected peers: \(networkManager.connectedPeers.map { $0.displayName })")
+            
             await handleRemoteInferenceFailure(
                 content: content,
                 model: model,
@@ -201,9 +214,29 @@ class ChatManager: ObservableObject {
             return
         }
         
+        // Add extra connection verification
+        if !networkManager.connectedPeers.contains(remoteDevice.peerID) {
+            print("DEBUG: ERROR - Device marked as connected but not in connectedPeers list!")
+            print("DEBUG: This indicates a device connection state inconsistency")
+            
+            // Update our device connection status to match reality
+            networkManager.updateDeviceConnectionStatus(remoteDevice.peerID, isConnected: false)
+            
+            await handleRemoteInferenceFailure(
+                content: content,
+                model: model,
+                error: "Remote device connection issue detected"
+            )
+            return
+        }
+        
         // Get the model ID from either the local model or use a default from the remote device
         let modelId = model?.identifier ?? selectedRemoteDevice?.availableModels.first ?? ""
         if modelId.isEmpty {
+            print("DEBUG: ERROR - No model ID available for remote inference")
+            print("DEBUG: Local model: \(model?.identifier ?? "nil")")
+            print("DEBUG: Remote device models: \(selectedRemoteDevice?.availableModels ?? [])")
+            
             await handleRemoteInferenceFailure(
                 content: content,
                 model: model,
@@ -215,40 +248,118 @@ class ChatManager: ObservableObject {
         do {
             print("DEBUG: Starting remote MLX inference...")
             print("DEBUG: Model identifier: \(modelId)")
+            print("DEBUG: Connected peers before inference: \(networkManager.connectedPeers.map { $0.displayName })")
             
-            let response = try await networkManager.performRemoteInference(
+            // Add connection check timeout to run in parallel with inference
+            let connectionCheckTask = Task {
+                // Check every 5 seconds if we're still connected during long inferences
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    print("DEBUG: Connection check during inference - still connected: \(networkManager.connectedPeers.contains(remoteDevice.peerID))")
+                }
+            }
+            
+            // Register the request in both tracking systems
+            // IMPORTANT: We'll use the same request ID that will be created in performRemoteInference
+            // First, get the ID from the macOSMLXNetworkManager before creating the request
+            let requestId = UUID()
+            print("DEBUG: Creating inference request with ID: \(requestId.uuidString)")
+            
+            // Important: Add the request to MultipeerManager's pendingRequests before sending
+            // This handler will capture the actual response and display it in debug logs
+            networkManager.pendingRequests[requestId] = { response in
+                print("DEBUG: MultipeerManager handler triggered for request ID: \(requestId.uuidString)")
+                print("DEBUG: ===== INFERENCE RESPONSE FROM iOS =====")
+                print("DEBUG: Response content length: \(response.content.count)")
+                print("DEBUG: Response content: \"\(response.content)\"")
+                print("DEBUG: Inference time: \(String(describing: response.inferenceTime))")
+                print("DEBUG: ===== END RESPONSE =====")
+                // The response will be processed and returned via the continuation
+            }
+            
+            print("DEBUG: Added request to MultipeerManager.pendingRequests, count: \(networkManager.pendingRequests.count)")
+            
+            // Create the request with our custom ID to ensure consistent tracking
+            let inferenceRequest = MLXInferenceRequest(
                 prompt: content,
                 modelIdentifier: modelId,
-                parameters: InferenceParameters()
+                parameters: InferenceParameters(),
+                id: requestId
             )
             
-            print("DEBUG: Remote inference completed, response: '\(response)'")
+            // IMPORTANT: Instead of using our UUID directly, we'll use the one from performRemoteInference
+            // But we'll register a special handler to capture responses from iOS for either ID
+            
+            // Add a special request handler to check for any response that might come in
+            networkManager.messageHandlers[.inferenceResponse] = { message, peer in
+                if case .inferenceResponse(let response) = message {
+                    print("DEBUG: SPECIAL HANDLER: Received direct inference response from \(peer.displayName)")
+                    print("DEBUG: Response request ID: \(response.requestId.uuidString)")
+                    print("DEBUG: Response content: \"\(response.content)\"")
+                    
+                    // Look for handlers in both systems
+                    if networkManager.pendingRequests[response.requestId] != nil {
+                        print("DEBUG: Found handler in pendingRequests, will process automatically")
+                    } else {
+                        print("DEBUG: No handler in pendingRequests for ID: \(response.requestId.uuidString)")
+                    }
+                    
+                    // Just let the normal system handle it
+                    print("DEBUG: Letting MultipeerManager handle the response normally")
+                }
+            }
+            
+            // Now let the system perform inference using our pre-created request with consistent ID
+            let response = try await networkManager.performRemoteInference(request: inferenceRequest)
+            
+            // Cancel the connection check
+            connectionCheckTask.cancel()
+            
+            print("DEBUG: Remote inference completed, response length: \(response.count)")
+            print("DEBUG: Response content: \"\(response)\"")
             
             // Update UI with the complete response
+            print("DEBUG: *** CRITICAL SUCCESS PATH *** Remote inference callback invoked with response: \(response.prefix(50))...")
             await MainActor.run {
                 if !Task.isCancelled {
+                    print("DEBUG: *** CREATING MESSAGE *** Creating AI message from response")
                     let aiMessage = ChatMessage(content: response.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
+                    print("DEBUG: *** UPDATING UI *** Adding message to chat")
                     self.messages.append(aiMessage)
                     
                     // Notify thread manager of AI response
                     if let threadId = self.threadId, let callback = self.onMessageAdded {
+                        print("DEBUG: *** CALLBACK CHAIN *** Notifying thread manager of new message")
                         Task {
                             await callback(threadId, aiMessage)
                         }
                     }
                     
+                    print("DEBUG: *** FINAL STEP *** Resetting UI state - MUST HAPPEN")
+                    print("DEBUG: Before reset: isGenerating=\(self.isGenerating)")
                     self.currentResponse = ""
                     self.isGenerating = false
+                    print("DEBUG: After reset: isGenerating=\(self.isGenerating)")
                     print("DEBUG: Remote inference completed successfully")
+                } else {
+                    print("DEBUG: Task was cancelled, not updating UI")
                 }
             }
             
         } catch {
             print("DEBUG: Error during remote inference: \(error)")
+            
+            // Get more detailed error info
+            var errorDetails = error.localizedDescription
+            if let networkError = error as? MLXNetworkError {
+                errorDetails = "\(networkError.code.rawValue): \(networkError.message)"
+                print("DEBUG: MLXNetworkError details - Code: \(networkError.code.rawValue), Message: \(networkError.message)")
+            }
+            
             await handleRemoteInferenceFailure(
                 content: content,
                 model: model,
-                error: "Remote inference failed: \(error.localizedDescription)"
+                error: "Remote inference failed: \(errorDetails)"
             )
         }
         #else
@@ -289,6 +400,11 @@ class ChatManager: ObservableObject {
             
         } else {
             // No fallback available
+            print("DEBUG: Error during remote inference: \(error)")
+            if let networkError = error as? MLXNetworkError {
+                print("DEBUG: MLXNetworkError details - Code: \(networkError.code.rawValue), Message: \(networkError.message)")
+                print("DEBUG: Request ID: \(networkError.requestId?.uuidString ?? "nil")")
+            }
             await handleInferenceError("\(error). Local model not available for fallback.")
         }
     }
@@ -397,14 +513,37 @@ class ChatManager: ObservableObject {
     
     func enableRemoteInference(_ device: RemoteMLXDevice?) {
         print("DEBUG: enableRemoteInference called with device: \(device?.name ?? "nil")")
-        selectedRemoteDevice = device
-        isUsingRemoteInference = device != nil
+        print("DEBUG: Device isConnected flag: \(device?.isConnected ?? false)")
         
-        // Debug output to verify the state change
-        print("DEBUG: isUsingRemoteInference set to \(isUsingRemoteInference)")
-        print("DEBUG: selectedRemoteDevice set to \(selectedRemoteDevice?.name ?? "nil")")
-        
-        if let device = device {
+        // Only set up remote inference if the device is actually connected
+        if let device = device, device.isConnected {
+            // Check if we actually need to get the network manager to verify connection
+            #if os(macOS)
+            if let networkManager = macOSNetworkManager {
+                let actuallyConnected = networkManager.connectedPeers.contains(device.peerID)
+                print("DEBUG: Actual connection status verified: \(actuallyConnected)")
+                
+                if !actuallyConnected {
+                    print("DEBUG: ERROR - Device reports connected but isn't in connectedPeers!")
+                    print("DEBUG: Will NOT enable remote inference with this device")
+                    
+                    // Handle this as a device not connected case
+                    handleRemoteDeviceNotConnected()
+                    return
+                }
+                
+                // If actually connected, verify the connection with a ping
+                networkManager.sendMessage(.ping, to: device.peerID)
+            }
+            #endif
+            
+            selectedRemoteDevice = device
+            isUsingRemoteInference = true
+            
+            // Debug output to verify the state change
+            print("DEBUG: isUsingRemoteInference set to \(isUsingRemoteInference)")
+            print("DEBUG: selectedRemoteDevice set to \(selectedRemoteDevice?.name ?? "nil")")
+            
             remoteInferenceStatus = "Connected to \(device.name)"
             modelInfo = "Using remote device: \(device.name) for inference"
             
@@ -420,16 +559,26 @@ class ChatManager: ObservableObject {
             // Start monitoring connection
             startConnectionMonitoring()
         } else {
-            remoteInferenceStatus = "Not connected"
-            if let model = selectedModel {
-                modelInfo = "Model \(model.name) loaded locally"
-            } else {
-                modelInfo = "No model loaded"
-            }
-            
-            // Stop monitoring when not using remote inference
-            stopConnectionMonitoring()
+            // Handle device not provided or not connected
+            handleRemoteDeviceNotConnected()
         }
+    }
+    
+    private func handleRemoteDeviceNotConnected() {
+        print("DEBUG: Remote device not connected or not provided")
+        selectedRemoteDevice = nil
+        isUsingRemoteInference = false
+        remoteInferenceStatus = "Not connected"
+        
+        // Update model info based on local model if available
+        if let model = selectedModel {
+            modelInfo = "Model \(model.name) loaded locally"
+        } else {
+            modelInfo = "No model loaded"
+        }
+        
+        // Stop monitoring when not using remote inference
+        stopConnectionMonitoring()
     }
     
     private var connectionMonitorTask: Task<Void, Never>?
@@ -437,17 +586,35 @@ class ChatManager: ObservableObject {
     private func startConnectionMonitoring() {
         stopConnectionMonitoring() // Stop any existing monitoring
         
+        print("DEBUG: Starting connection monitoring for remote device")
         connectionMonitorTask = Task {
+            // Do an immediate check to verify connection
+            await checkConnectionHealth()
+            
+            // More frequent checks at first to quickly detect initial problems
+            for i in 1...3 {
+                if Task.isCancelled || !isUsingRemoteInference { break }
+                
+                // Check every 2 seconds for the first few checks
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await checkConnectionHealth()
+                print("DEBUG: Initial connection check #\(i) completed")
+            }
+            
+            // If we're still connected, switch to regular interval
             while !Task.isCancelled && isUsingRemoteInference {
                 await checkConnectionHealth()
                 
-                // Check every 10 seconds
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                // Check every 5 seconds (reduced from 10 seconds for more reliability)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
+            
+            print("DEBUG: Connection monitoring task ended")
         }
     }
     
     private func stopConnectionMonitoring() {
+        print("DEBUG: Stopping connection monitoring")
         connectionMonitorTask?.cancel()
         connectionMonitorTask = nil
     }
@@ -459,9 +626,25 @@ class ChatManager: ObservableObject {
             return
         }
         
+        print("DEBUG: Checking connection health for device: \(remoteDevice.name)")
+        
         // Check if the device is still in connectedPeers - more reliable than remoteDevice.isConnected
         // which might not be updated immediately
         let isActuallyConnected = networkManager.connectedPeers.contains(remoteDevice.peerID)
+        
+        if isActuallyConnected {
+            print("DEBUG: Device \(remoteDevice.name) is still connected")
+            
+            // Send a ping to keep the connection alive and verify it's responsive
+            networkManager.sendMessage(.ping, to: remoteDevice.peerID)
+            
+            // Update the device connection status to ensure UI is correct
+            networkManager.updateDeviceConnectionStatus(remoteDevice.peerID, isConnected: true)
+            return
+        }
+        
+        // We appear to be disconnected
+        print("DEBUG: Device \(remoteDevice.name) appears disconnected, waiting to confirm...")
         
         // Only disconnect if we've been disconnected for some time (avoid false negatives)
         if !isActuallyConnected {
@@ -472,31 +655,50 @@ class ChatManager: ObservableObject {
             let isStillDisconnected = !networkManager.connectedPeers.contains(remoteDevice.peerID)
             
             if isStillDisconnected {
-                await MainActor.run {
-                    print("DEBUG: Remote device disconnected, disabling remote inference")
-                    self.enableRemoteInference(nil)
-                    
-                    // Update status
-                    self.remoteInferenceStatus = "Connection lost"
-                    
-                    // Optionally show a message to the user
-                    if !self.messages.isEmpty {
-                        let disconnectMessage = ChatMessage(
-                            content: "📱 Remote device disconnected. Switched to local inference.",
-                            isUser: false
-                        )
-                        self.messages.append(disconnectMessage)
+                print("DEBUG: Device confirmed disconnected after waiting")
+                
+                // Try to reconnect once before giving up
+                print("DEBUG: Attempting to reconnect to \(remoteDevice.name)...")
+                networkManager.connectToPeer(remoteDevice.peerID)
+                
+                // Wait a bit to see if reconnection works
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+                
+                // Final check - if still disconnected, give up
+                if !networkManager.connectedPeers.contains(remoteDevice.peerID) {
+                    print("DEBUG: Reconnection failed, disabling remote inference")
+                    await MainActor.run {
+                        print("DEBUG: Remote device disconnected, disabling remote inference")
+                        self.enableRemoteInference(nil)
                         
-                        // Notify thread manager
-                        if let threadId = self.threadId, let callback = self.onMessageAdded {
-                            Task {
-                                await callback(threadId, disconnectMessage)
+                        // Update status
+                        self.remoteInferenceStatus = "Connection lost"
+                        
+                        // Optionally show a message to the user
+                        if !self.messages.isEmpty {
+                            let disconnectMessage = ChatMessage(
+                                content: "📱 Remote device disconnected. Switched to local inference.",
+                                isUser: false
+                            )
+                            self.messages.append(disconnectMessage)
+                            
+                            // Notify thread manager
+                            if let threadId = self.threadId, let callback = self.onMessageAdded {
+                                Task {
+                                    await callback(threadId, disconnectMessage)
+                                }
                             }
                         }
                     }
+                } else {
+                    print("DEBUG: Reconnection successful!")
+                    // Update the device connection status
+                    networkManager.updateDeviceConnectionStatus(remoteDevice.peerID, isConnected: true)
                 }
             } else {
                 print("DEBUG: Device connection restored, was temporarily disconnected")
+                // Make sure connection status is properly reflected
+                networkManager.updateDeviceConnectionStatus(remoteDevice.peerID, isConnected: true)
             }
         }
         #endif
@@ -513,6 +715,9 @@ class ChatManager: ObservableObject {
         macOSNetworkManager = macOSMLXNetworkManager()
         print("DEBUG: macOSMLXNetworkManager created successfully")
         #endif
+        
+        // BUGFIX: Set up notification handlers for inference completion
+        setupNotificationHandlers()
     }
     
     func startNetworkServices() {
@@ -629,5 +834,59 @@ class ChatManager: ObservableObject {
     
     func setupThreadCallback(_ callback: @escaping (UUID, ChatMessage) async -> Void) {
         onMessageAdded = callback
+    }
+    
+    // BUGFIX: Add observer for inference completion notifications
+    func setupInferenceCompletionObserver() {
+        // Remove any existing observer first to avoid duplicates
+        NotificationCenter.default.removeObserver(self, name: Notification.Name("MLXInferenceCompleted"), object: nil)
+        
+        // Add observer for inference completion notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleInferenceCompletedNotification(_:)),
+            name: Notification.Name("MLXInferenceCompleted"),
+            object: nil
+        )
+        print("DEBUG: BUGFIX: Set up observer for inference completion notifications")
+    }
+    
+    // Call this method when initializing networking
+    func setupNotificationHandlers() {
+        setupInferenceCompletionObserver()
+    }
+    
+    // BUGFIX: Handle inference completed notifications to reset UI state
+    @objc private func handleInferenceCompletedNotification(_ notification: Notification) {
+        print("DEBUG: BUGFIX: ChatManager received MLXInferenceCompleted notification")
+        
+        guard let content = notification.userInfo?["content"] as? String else {
+            print("DEBUG: ERROR: Inference completion notification missing content")
+            return
+        }
+        
+        // Skip if we're not currently generating (already handled by another method)
+        guard isGenerating else {
+            print("DEBUG: BUGFIX: isGenerating already false, skipping notification handling")
+            return
+        }
+        
+        // Create and add the AI message
+        let aiMessage = ChatMessage(content: content.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
+        messages.append(aiMessage)
+        
+        // Notify thread manager of AI response
+        if let threadId = threadId, let callback = onMessageAdded {
+            print("DEBUG: BUGFIX: Notifying thread manager of new message from notification")
+            Task {
+                await callback(threadId, aiMessage)
+            }
+        }
+        
+        // Reset UI state
+        print("DEBUG: BUGFIX: Resetting UI state from notification handler")
+        currentResponse = ""
+        isGenerating = false
+        print("DEBUG: BUGFIX: UI state reset complete")
     }
 }

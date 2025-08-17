@@ -230,19 +230,38 @@ struct ModelSelectorBar: View {
                                     networkManager.selectRemoteDevice(device)
                                     
                                     // Wait a bit longer for connection to establish before enabling remote inference
-                                    // Increasing from 1.0 to 2.0 seconds to ensure connection is stable
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        print("DEBUG: Connection delay completed, enabling remote inference")
+                                    // Increasing from 2.0 to 5.0 seconds to ensure connection is stable
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                                        print("DEBUG: Connection delay completed, verifying connection...")
                                         
-                                        // Set explicit state immediately
-                                        chatManager.isUsingRemoteInference = true
-                                        chatManager.selectedRemoteDevice = device
-                                        
-                                        // Then call enableRemoteInference which will properly update all related state
-                                        chatManager.enableRemoteInference(device)
-                                        
-                                        // Make sure local model selection is cleared to avoid confusion
-                                        chatManager.selectedModel = nil
+                                        // First verify the device is still connected
+                                        if networkManager.connectedPeers.contains(device.peerID) {
+                                            print("DEBUG: Connection verified, enabling remote inference")
+                                            
+                                            // Update the device to reflect it's actually connected
+                                            networkManager.updateDeviceConnectionStatus(device.peerID, isConnected: true)
+                                            
+                                            // Get the updated device from the manager
+                                            if let updatedDevice = networkManager.discoveredDevices.first(where: { $0.peerID == device.peerID }) {
+                                                // Set explicit state immediately
+                                                chatManager.isUsingRemoteInference = true
+                                                chatManager.selectedRemoteDevice = updatedDevice
+                                                
+                                                // Then call enableRemoteInference which will properly update all related state
+                                                chatManager.enableRemoteInference(updatedDevice)
+                                                
+                                                // Make sure local model selection is cleared to avoid confusion
+                                                chatManager.selectedModel = nil
+                                            } else {
+                                                print("DEBUG: ERROR - Updated device not found after connection!")
+                                            }
+                                        } else {
+                                            print("DEBUG: ERROR - Device connection failed, not enabling remote inference")
+                                            
+                                            // Update UI to reflect failure
+                                            chatManager.enableRemoteInference(nil)
+                                            chatManager.selectedModel = nil
+                                        }
                                         
                                         print("DEBUG: Remote device selected and remote inference enabled")
                                         print("DEBUG: Final state - isUsingRemoteInference: \(chatManager.isUsingRemoteInference)")

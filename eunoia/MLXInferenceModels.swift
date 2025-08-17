@@ -6,6 +6,8 @@ import MultipeerConnectivity
 enum MLXNetworkMessage: Codable {
     case inferenceRequest(MLXInferenceRequest)
     case inferenceResponse(MLXInferenceResponse)
+    case inferenceResponseChunk(MLXInferenceResponseChunk)
+    case responseAck(ResponseAcknowledgment)
     case error(MLXNetworkError)
     case ping
     case pong
@@ -18,12 +20,12 @@ struct MLXInferenceRequest: Codable {
     let parameters: InferenceParameters
     let timestamp: Date
     
-    init(prompt: String, modelIdentifier: String, parameters: InferenceParameters = InferenceParameters()) {
-        self.id = UUID()
+    init(prompt: String, modelIdentifier: String, parameters: InferenceParameters = InferenceParameters(), id: UUID = UUID(), timestamp: Date = Date()) {
+        self.id = id
         self.prompt = prompt
         self.modelIdentifier = modelIdentifier
         self.parameters = parameters
-        self.timestamp = Date()
+        self.timestamp = timestamp
     }
 }
 
@@ -34,14 +36,18 @@ struct MLXInferenceResponse: Codable {
     let isStreaming: Bool
     let timestamp: Date
     let inferenceTime: TimeInterval?
+    let messageId: UUID
+    let chunkCount: Int
     
-    init(requestId: UUID, content: String, isComplete: Bool = true, isStreaming: Bool = false, inferenceTime: TimeInterval? = nil) {
+    init(requestId: UUID, content: String, isComplete: Bool = true, isStreaming: Bool = false, inferenceTime: TimeInterval? = nil, messageId: UUID = UUID(), chunkCount: Int = 1) {
         self.requestId = requestId
         self.content = content
         self.isComplete = isComplete
         self.isStreaming = isStreaming
         self.timestamp = Date()
         self.inferenceTime = inferenceTime
+        self.messageId = messageId
+        self.chunkCount = chunkCount
     }
 }
 
@@ -167,7 +173,47 @@ struct MLXServiceInfo {
     static let serviceType = "mlx-ai-local"
     static let discoveryTimeout: TimeInterval = 30.0
     static let connectionTimeout: TimeInterval = 15.0
-    static let inferenceTimeout: TimeInterval = 60.0
+    static let inferenceTimeout: TimeInterval = 120.0 // Increased from 60s to account for slow model loading on iOS
+    static let maxChunkSize = 4000 // Maximum size of a message chunk in characters
+    static let chunkRetryInterval: TimeInterval = 3.0 // Time to wait before retrying a chunk
+}
+
+// MARK: - Response Chunking
+
+struct MLXInferenceResponseChunk: Codable {
+    let requestId: UUID
+    let messageId: UUID
+    let chunkIndex: Int
+    let totalChunks: Int
+    let chunkContent: String
+    let inferenceTime: TimeInterval?
+    let timestamp: Date
+    
+    init(requestId: UUID, messageId: UUID, chunkIndex: Int, totalChunks: Int, chunkContent: String, inferenceTime: TimeInterval? = nil) {
+        self.requestId = requestId
+        self.messageId = messageId
+        self.chunkIndex = chunkIndex
+        self.totalChunks = totalChunks
+        self.chunkContent = chunkContent
+        self.inferenceTime = inferenceTime
+        self.timestamp = Date()
+    }
+}
+
+struct ResponseAcknowledgment: Codable {
+    let requestId: UUID
+    let messageId: UUID
+    let chunkIndex: Int?
+    let isComplete: Bool
+    let timestamp: Date
+    
+    init(requestId: UUID, messageId: UUID, chunkIndex: Int? = nil, isComplete: Bool = false) {
+        self.requestId = requestId
+        self.messageId = messageId
+        self.chunkIndex = chunkIndex
+        self.isComplete = isComplete
+        self.timestamp = Date()
+    }
 }
 
 // MARK: - Message Serialization Helpers

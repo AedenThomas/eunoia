@@ -31,6 +31,7 @@ class iOSMLXNetworkManager: MultipeerManager {
         super.init()
         
         setupInferenceHandlers()
+        setupConnectionHandlers()
         print("iOSMLXNetworkManager: Initialized for iOS device: \(deviceInfo.deviceName)")
     }
     
@@ -43,6 +44,42 @@ class iOSMLXNetworkManager: MultipeerManager {
                     await self?.handleInferenceRequest(request, from: peer)
                 }
             }
+        }
+    }
+    
+    private func setupConnectionHandlers() {
+        // Override the peer connection state change handler
+        // to add iOS-specific connection handling
+        messageHandlers[.ping] = { [weak self] _, peer in
+            print("DEBUG: Received ping from \(peer.displayName), sending pong response")
+            self?.sendMessage(.pong, to: peer)
+        }
+        
+        messageHandlers[.pong] = { [weak self] _, peer in
+            print("DEBUG: Received pong response from \(peer.displayName)")
+        }
+    }
+    
+    // Override the connection state handling to keep track of connected peers
+    @objc @MainActor
+    override func handlePeerConnectionStateChange(_ peerID: MCPeerID, state: MCSessionState) {
+        print("DEBUG: iOS - handling connection state change for \(peerID.displayName): \(state)")
+        
+        switch state {
+        case .connected:
+            print("DEBUG: iOS - peer connected: \(peerID.displayName)")
+            
+            // Send an immediate ping to verify connection
+            sendMessage(.ping, to: peerID)
+            
+        case .notConnected:
+            print("DEBUG: iOS - peer disconnected: \(peerID.displayName)")
+            
+            // If this peer was in the middle of inference, we need to clean up
+            // We don't need to handle anything here since the inference task will detect the disconnect
+            
+        default:
+            break
         }
     }
     
@@ -95,12 +132,19 @@ class iOSMLXNetworkManager: MultipeerManager {
         print("  - Model: \(request.modelIdentifier)")
         print("  - Prompt length: \(request.prompt.count) characters")
         
+        // Verify peer is still connected
+        guard connectedPeers.contains(peer) else {
+            print("DEBUG: ERROR - Peer \(peer.displayName) is no longer connected, cannot process request")
+            return
+        }
+        
         // Track the request
         currentInferenceRequests.insert(request.id)
         totalInferenceRequests += 1
         
         // Check if we can handle this request
         guard deviceInfo.availableModels.contains(request.modelIdentifier) else {
+            print("DEBUG: ERROR - Model \(request.modelIdentifier) not available on this device")
             let error = MLXNetworkError(
                 code: .modelNotFound,
                 message: "Model \(request.modelIdentifier) not available on this device",
@@ -113,6 +157,7 @@ class iOSMLXNetworkManager: MultipeerManager {
         
         // Check if we're not too busy
         guard currentInferenceRequests.count <= deviceInfo.deviceCapabilities.maxConcurrentRequests else {
+            print("DEBUG: ERROR - Device is busy handling other requests")
             let error = MLXNetworkError(
                 code: .deviceBusy,
                 message: "Device is currently handling maximum concurrent requests",
@@ -124,33 +169,83 @@ class iOSMLXNetworkManager: MultipeerManager {
         }
         
         do {
+            // Verify connection status before starting inference
+            print("DEBUG: Starting inference for request \(request.id), peer is still connected: \(connectedPeers.contains(peer))")
+            
             let startTime = Date()
+            print("DEBUG: About to call performInference for model \(request.modelIdentifier)")
             let response = try await performInference(for: request)
             let inferenceTime = Date().timeIntervalSince(startTime)
+            
+            print("DEBUG: Inference completed successfully in \(inferenceTime)s")
+            print("DEBUG: Response length: \(response.count) chars")
+            
+            // Create a unique message ID for this response (used for chunking and acknowledgments)
+            let messageId = UUID()
             
             let inferenceResponse = MLXInferenceResponse(
                 requestId: request.id,
                 content: response,
                 isComplete: true,
                 isStreaming: false,
-                inferenceTime: inferenceTime
+                inferenceTime: inferenceTime,
+                messageId: messageId,
+                chunkCount: response.count > MLXServiceInfo.maxChunkSize ? 
+                    Int(ceil(Double(response.count) / Double(MLXServiceInfo.maxChunkSize))) : 1
             )
             
-            sendMessage(.inferenceResponse(inferenceResponse), to: peer)
-            print("iOSMLXNetworkManager: Completed inference in \(String(format: "%.2f", inferenceTime))s")
-            
+            // Check if peer is still connected before sending response
+            if connectedPeers.contains(peer) {
+                print("DEBUG: Peer \(peer.displayName) is still connected, sending response")
+                sendMessage(.inferenceResponse(inferenceResponse), to: peer)
+                print("iOSMLXNetworkManager: Completed inference in \(String(format: "%.2f", inferenceTime))s")
+                
+                // Double-check that message was sent (verify peer is still in connected list)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                    guard let self = self else { return }
+                    if !self.connectedPeers.contains(peer) {
+                        print("DEBUG: WARNING - Peer \(peer.displayName) disconnected after sending response!")
+                    } else {
+                        print("DEBUG: Connection with \(peer.displayName) still active after sending response")
+                        
+                        // Send another ping after 3 seconds to verify connection still works
+                        self.sendMessage(.ping, to: peer)
+                    }
+                }
+            } else {
+                print("DEBUG: ERROR - Peer \(peer.displayName) disconnected during inference, cannot send response")
+                // Try to reconnect and resend
+                self.reconnectAndRetry(peer: peer, response: inferenceResponse)
+            }
         } catch {
+            print("DEBUG: Inference failed with error: \(error)")
+            
             let networkError = MLXNetworkError(
                 code: .unknownError,
                 message: "Inference failed: \(error.localizedDescription)",
                 requestId: request.id
             )
-            sendMessage(.error(networkError), to: peer)
+            
+            if connectedPeers.contains(peer) {
+                sendMessage(.error(networkError), to: peer)
+            } else {
+                print("DEBUG: ERROR - Peer \(peer.displayName) disconnected during inference, cannot send error")
+            }
             print("iOSMLXNetworkManager: Inference failed: \(error)")
         }
         
         // Remove from tracking
         currentInferenceRequests.remove(request.id)
+    }
+    
+    // Helper method to attempt reconnection and resend response
+    private func reconnectAndRetry(peer: MCPeerID, response: MLXInferenceResponse) {
+        print("DEBUG: Attempting to reconnect to peer \(peer.displayName) and resend response")
+        
+        // We can't directly reconnect in MultipeerConnectivity - the other side needs to initiate
+        // But we can add debugging to help troubleshoot the issue
+        print("DEBUG: Cannot directly reconnect in MultipeerConnectivity")
+        print("DEBUG: Response for request \(response.requestId) could not be delivered")
     }
     
     private func performInference(for request: MLXInferenceRequest) async throws -> String {
