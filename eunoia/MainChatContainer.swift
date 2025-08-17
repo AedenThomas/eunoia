@@ -842,8 +842,15 @@ private struct ThreadChatViewContent: View {
         let trimmedText = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
         
-        // Check if a model is selected before sending
-        guard chatManager.selectedModel != nil else {
+        // Check if either a local model or a remote device is selected before sending
+        let canProceed = chatManager.selectedModel != nil || 
+                        (chatManager.isUsingRemoteInference && chatManager.selectedRemoteDevice != nil)
+                        
+        guard canProceed else {
+            print("DEBUG: No model or remote device selected, showing model selection prompt")
+            print("DEBUG: isUsingRemoteInference = \(chatManager.isUsingRemoteInference)")
+            print("DEBUG: selectedRemoteDevice = \(chatManager.selectedRemoteDevice?.name ?? "nil")")
+            print("DEBUG: selectedModel = \(chatManager.selectedModel?.name ?? "nil")")
             showModelSelectionPrompt = true
             return
         }

@@ -28,7 +28,12 @@ struct ModelSelectorBar: View {
     }
     
     var availableRemoteDevices: [RemoteMLXDevice] {
-        chatManager.getAvailableRemoteDevices()
+        let devices = chatManager.getAvailableRemoteDevices()
+        print("DEBUG: ModelSelectorBar - Available remote devices: \(devices.count)")
+        for device in devices {
+            print("DEBUG: → Available device: \(device.name), Models: \(device.availableModels.joined(separator: ", ")), Connected: \(device.isConnected)")
+        }
+        return devices
     }
     
     var hasAvailableOptions: Bool {
@@ -214,11 +219,43 @@ struct ModelSelectorBar: View {
                             device: device,
                             isSelected: chatManager.isUsingRemoteInference && chatManager.selectedRemoteDevice?.id == device.id,
                             action: {
-                                // Enable remote inference and select device
-                                chatManager.enableRemoteInference(device)
+                                // First select the device in the network manager to establish connection
                                 if let networkManager = chatManager.getNetworkManager() as? macOSMLXNetworkManager {
+                                    print("DEBUG: Starting remote device selection process")
+                                    
+                                    // Clear any existing selected model first
+                                    chatManager.selectedModel = nil
+                                    
+                                    // This will connect to the device if not already connected
                                     networkManager.selectRemoteDevice(device)
+                                    
+                                    // Wait a bit longer for connection to establish before enabling remote inference
+                                    // Increasing from 1.0 to 2.0 seconds to ensure connection is stable
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        print("DEBUG: Connection delay completed, enabling remote inference")
+                                        
+                                        // Set explicit state immediately
+                                        chatManager.isUsingRemoteInference = true
+                                        chatManager.selectedRemoteDevice = device
+                                        
+                                        // Then call enableRemoteInference which will properly update all related state
+                                        chatManager.enableRemoteInference(device)
+                                        
+                                        // Make sure local model selection is cleared to avoid confusion
+                                        chatManager.selectedModel = nil
+                                        
+                                        print("DEBUG: Remote device selected and remote inference enabled")
+                                        print("DEBUG: Final state - isUsingRemoteInference: \(chatManager.isUsingRemoteInference)")
+                                        print("DEBUG: Final state - selectedRemoteDevice: \(chatManager.selectedRemoteDevice?.name ?? "nil")")
+                                        print("DEBUG: Final state - selectedModel: \(chatManager.selectedModel?.name ?? "nil")")
+                                        
+                                        // Hide the model selection dropdown after selection
+                                        withAnimation {
+                                            showingModelDropdown = false
+                                        }
+                                    }
                                 }
+                                
                                 withAnimation(.easeOut(duration: 0.3)) {
                                     showingModelDropdown = false
                                 }

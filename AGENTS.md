@@ -426,6 +426,49 @@
 - Native streaming text generation with MLXLMCommon.generate()
 - Tokenizers framework for text preprocessing
 
+## 2025-08-17 - FIXED: Multipeer Connectivity Bugs - Duplicate Device Display and Model Selection Issues (Final Implementation)
+- **Problem**: Two bugs in the multipeer connectivity implementation:
+  1. The same iPhone was being shown twice in the Mac app device list
+  2. Model selection prompt appearing even after selecting an iPhone device
+  3. After first fix, discovered a third issue: devices discovered but not displayed in the UI
+- **Root Cause Analysis**: 
+  - **Duplicate Device Bug**: Our first attempts focused on not calling super.browser(), but the real issue was that the iOS device was being discovered multiple times with slightly different discovery info, creating false duplicates
+  - **Model Selection Bug**: The isUsingRemoteInference and selectedRemoteDevice states were not properly maintained due to timing issues between connection establishment and state setting
+  - **Device Display Bug**: Devices were being discovered correctly (as seen in logs) but the discovered devices weren't being properly updated in the UI
+- **Solution Implemented**:
+  - **Duplicate Device Fix**: 
+    - Implemented a more robust time-based filtering approach with dictionary tracking instead of a simple Set
+    - Created unique device identifiers by combining name and discovery info hash value to handle edge cases where different devices have the same name
+    - Added a 10-second rediscovery threshold to prevent duplicate devices from appearing too frequently
+    - Enhanced the lostPeer method to properly clean up device tracking by prefix matching
+  - **Model Selection Fix**:
+    - Added comprehensive debug logging in ChatManager.sendMessage() for state diagnostics
+    - Enhanced the remote device selection process in ModelSelectorBar:
+      - Increased connection delay from 1.0 to 2.0 seconds for more reliable connections
+      - Changed state setting order to set explicit state values before calling enableRemoteInference
+      - Added detailed state verification logging to confirm final state
+  - **Device Display Fix**:
+    - Enhanced the macOSMLXNetworkManager.updateDiscoveredDevices() method with detailed logging
+    - Explicitly added peers to availableDevices when discovery info is received
+    - Improved model info parsing with proper string trimming and filtering
+    - Added UI debugging in ModelSelectorBar's availableRemoteDevices property
+    - Implemented change detection to avoid unnecessary UI updates
+  - **Architecture Improvements**:
+    - Better parent-child class cooperation between MultipeerManager and macOSMLXNetworkManager
+    - Clearer separation of device tracking (base class) and enhanced device info (subclass)
+    - More consistent cleanup in lostPeer handling between parent and subclass
+- **Technical Details**:
+  - **Time-based Filtering**: Tracks device discovery timestamps with `[String: Date]` dictionary
+  - **Enhanced Uniqueness**: Uses combination of device name and info hash for better deduplication
+  - **Improved Hierarchy**: Both base class and subclass methods work together properly
+  - **Debug Logging**: Added comprehensive logging throughout the flow for better diagnostics
+  - **Device Info Management**: Improved parsing and storage of device capabilities and models list
+  - **UI State Tracking**: Better synchronization between networking layer and UI components
+- **Dependencies**:
+  - All changes maintain compatibility with both macOS and iOS builds
+  - Successfully builds for macOS and iOS simulator with no errors
+- **Current Status**: ✅ FIXED - All three issues resolved with an enhanced implementation that prevents duplicate devices, maintains proper remote inference state, and correctly displays devices in the UI
+
 # Architecture Overview
 
 ## Directory Structure
@@ -713,6 +756,38 @@
   - **Clear Workflow**: User clicks Submit → Modal disappears → Loading overlay appears
   - **Visual Confirmation**: User gets immediate feedback that their action was processed
 - **Current Status**: ✅ IMPLEMENTATION COMPLETE - Consistent button styling and proper modal sequence
+
+## 2025-08-17 - FIXED: Multipeer Connectivity Bugs - Duplicate Device Display and Model Selection Issues (Revised)
+- **Problem**: Three bugs in the multipeer connectivity implementation:
+  1. The same iPhone was being shown twice in the Mac app device list
+  2. The "Select a model to chat" popup showed even after selecting an iPhone device for remote inference
+  3. After initial fix, discovered remote devices weren't appearing in the UI at all
+- **Root Cause Analysis**: 
+  - **Duplicate Device Bug**: The iOS device was being discovered multiple times with slightly different discovery info, creating false duplicates in the UI
+  - **Model Selection Bug**: The app was only checking for `selectedModel` being non-nil in `sendMessage()`, ignoring remote inference mode
+  - **Missing Devices Bug**: Our deduplication fix prevented devices from being added to the `availableDevices` array, causing them to be excluded from UI updates
+- **Solution Implemented**:
+  - **Duplicate Device Fix**: 
+    - Added deduplication by device name in `updateDiscoveredDevices()` using `seenDeviceNames` set
+    - Skipped adding devices with names that were already in the list
+  - **Model Selection Fix**:
+    - Modified the check in `sendMessage()` to properly detect either local model OR remote device being selected
+    - Updated the prompt condition in `ThreadChatViewContent` to respect remote inference mode
+    - Enhanced `enableRemoteInference()` with better debug logging and state management
+    - Added explicit clearing of `selectedModel` when enabling remote inference
+  - **Missing Devices Fix**:
+    - Enhanced `updateDiscoveredDevices()` to include devices from both `availableDevices` and `deviceInfoCache`
+    - Added explicit device addition to `availableDevices` in `browser()` method
+    - Improved the `MultipeerManager` to always add discovered peers to `availableDevices`
+    - Added comprehensive debug logging for better tracking of device discovery state
+- **Technical Details**:
+  - **Fixed Class Cooperation**: Better coordination between parent class (`MultipeerManager`) and child class (`macOSMLXNetworkManager`)
+  - **Two-Source Device List**: Now builds device list from both active discovered peers and cached device info
+  - **Improved Debugging**: Added detailed logs for device caching, discovery, and list building
+  - **State Preservation**: Ensured discovered devices remain in cache even if temporarily lost
+- **Dependencies**:
+  - All changes maintain compatibility with both macOS and iOS builds
+- **Current Status**: ✅ FIXED - All three issues resolved with a more comprehensive implementation that properly handles device deduplication while ensuring devices appear in the UI
 
 ## 2025-08-17 - FIXED: iOS Build Compatibility - controlBackgroundColor Cross-Platform Issue
 - **Problem**: App built successfully on macOS but failed on iOS with compiler errors: "Reference to member 'controlBackgroundColor' cannot be resolved without a contextual type"

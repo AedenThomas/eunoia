@@ -126,6 +126,7 @@ class ChatManager: ObservableObject {
         print("DEBUG: Current selectedModel before sending: \(selectedModel?.name ?? "nil")")
         print("DEBUG: Using remote inference: \(isUsingRemoteInference)")
         print("DEBUG: Current threadId: \(threadId?.uuidString ?? "nil")")
+        print("DEBUG: Current selectedRemoteDevice: \(selectedRemoteDevice?.name ?? "nil")")
         
         let userMessage = ChatMessage(content: content, isUser: true)
         messages.append(userMessage)
@@ -138,8 +139,16 @@ class ChatManager: ObservableObject {
             }
         }
         
-        guard let selectedModel = selectedModel else {
-            print("DEBUG: ERROR - selectedModel is nil when trying to send message!")
+        // Check for either a local model or a remote device being selected
+        // This is the main check that determines if the model selection prompt shows
+        let canProceed = selectedModel != nil || (isUsingRemoteInference && selectedRemoteDevice != nil)
+        
+        if !canProceed {
+            print("DEBUG: ERROR - No model or remote device selected when trying to send message!")
+            print("DEBUG: isUsingRemoteInference: \(isUsingRemoteInference)")
+            print("DEBUG: selectedRemoteDevice: \(selectedRemoteDevice?.name ?? "nil")")
+            print("DEBUG: selectedModel: \(selectedModel?.name ?? "nil")")
+            
             let errorMessage = ChatMessage(content: "Please select a model or remote device first.", isUser: false)
             messages.append(errorMessage)
             // Notify thread manager of error message
@@ -160,17 +169,19 @@ class ChatManager: ObservableObject {
         
         // Choose between local and remote inference
         if isUsingRemoteInference {
+            print("DEBUG: Using remote inference with device: \(selectedRemoteDevice?.name ?? "unknown")")
             generateTask = Task {
                 await performRemoteInference(content: content, model: selectedModel)
             }
         } else {
+            print("DEBUG: Using local inference with model: \(selectedModel?.name ?? "unknown")")
             generateTask = Task {
                 await performLocalInference(content: content, model: selectedModel)
             }
         }
     }
     
-    private func performRemoteInference(content: String, model: MLXModel) async {
+    private func performRemoteInference(content: String, model: MLXModel?) async {
         #if os(macOS)
         guard let networkManager = macOSNetworkManager else {
             await handleRemoteInferenceFailure(
@@ -190,13 +201,24 @@ class ChatManager: ObservableObject {
             return
         }
         
+        // Get the model ID from either the local model or use a default from the remote device
+        let modelId = model?.identifier ?? selectedRemoteDevice?.availableModels.first ?? ""
+        if modelId.isEmpty {
+            await handleRemoteInferenceFailure(
+                content: content,
+                model: model,
+                error: "No model specified for remote inference"
+            )
+            return
+        }
+        
         do {
             print("DEBUG: Starting remote MLX inference...")
-            print("DEBUG: Model identifier: \(model.identifier)")
+            print("DEBUG: Model identifier: \(modelId)")
             
             let response = try await networkManager.performRemoteInference(
                 prompt: content,
-                modelIdentifier: model.identifier,
+                modelIdentifier: modelId,
                 parameters: InferenceParameters()
             )
             
@@ -238,11 +260,11 @@ class ChatManager: ObservableObject {
         #endif
     }
     
-    private func handleRemoteInferenceFailure(content: String, model: MLXModel, error: String) async {
+    private func handleRemoteInferenceFailure(content: String, model: MLXModel?, error: String) async {
         print("DEBUG: Remote inference failed, attempting fallback to local inference")
         
         // Check if we can fallback to local inference
-        if downloadManager.getDownloadState(for: model) == .completed {
+        if let model = model, downloadManager.getDownloadState(for: model) == .completed {
             await MainActor.run {
                 // Show fallback message
                 let fallbackMessage = ChatMessage(
@@ -271,7 +293,13 @@ class ChatManager: ObservableObject {
         }
     }
     
-    private func performLocalInference(content: String, model: MLXModel) async {
+    private func performLocalInference(content: String, model: MLXModel?) async {
+        // Check that we have a model to use
+        guard let model = model else {
+            await handleInferenceError("No model selected. Please select a model first.")
+            return
+        }
+        
         // Check if model is downloaded
         guard downloadManager.getDownloadState(for: model) == .completed else {
             await handleInferenceError("Please download the \(model.name) model first.")
@@ -368,12 +396,26 @@ class ChatManager: ObservableObject {
     // MARK: - Remote Inference Management
     
     func enableRemoteInference(_ device: RemoteMLXDevice?) {
+        print("DEBUG: enableRemoteInference called with device: \(device?.name ?? "nil")")
         selectedRemoteDevice = device
         isUsingRemoteInference = device != nil
         
+        // Debug output to verify the state change
+        print("DEBUG: isUsingRemoteInference set to \(isUsingRemoteInference)")
+        print("DEBUG: selectedRemoteDevice set to \(selectedRemoteDevice?.name ?? "nil")")
+        
         if let device = device {
             remoteInferenceStatus = "Connected to \(device.name)"
-            modelInfo = "Using remote device: \(device.name)"
+            modelInfo = "Using remote device: \(device.name) for inference"
+            
+            // Ensure we clear the selectedModel to prevent confusion when using remote inference
+            if selectedModel != nil {
+                print("DEBUG: Clearing selectedModel due to remote inference mode")
+                selectedModel = nil
+            }
+            
+            print("DEBUG: Remote inference successfully enabled with device: \(device.name)")
+            print("DEBUG: Available models on remote device: \(device.availableModels.joined(separator: ", "))")
             
             // Start monitoring connection
             startConnectionMonitoring()
@@ -417,30 +459,44 @@ class ChatManager: ObservableObject {
             return
         }
         
-        // Check if the device is still connected
-        if !remoteDevice.isConnected || !networkManager.connectedPeers.contains(remoteDevice.peerID) {
-            await MainActor.run {
-                print("DEBUG: Remote device disconnected, disabling remote inference")
-                self.enableRemoteInference(nil)
-                
-                // Update status
-                self.remoteInferenceStatus = "Connection lost"
-                
-                // Optionally show a message to the user
-                if !self.messages.isEmpty {
-                    let disconnectMessage = ChatMessage(
-                        content: "📱 Remote device disconnected. Switched to local inference.",
-                        isUser: false
-                    )
-                    self.messages.append(disconnectMessage)
+        // Check if the device is still in connectedPeers - more reliable than remoteDevice.isConnected
+        // which might not be updated immediately
+        let isActuallyConnected = networkManager.connectedPeers.contains(remoteDevice.peerID)
+        
+        // Only disconnect if we've been disconnected for some time (avoid false negatives)
+        if !isActuallyConnected {
+            // Add a delay and check again to avoid transient disconnections
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+            
+            // Check again if we're actually disconnected
+            let isStillDisconnected = !networkManager.connectedPeers.contains(remoteDevice.peerID)
+            
+            if isStillDisconnected {
+                await MainActor.run {
+                    print("DEBUG: Remote device disconnected, disabling remote inference")
+                    self.enableRemoteInference(nil)
                     
-                    // Notify thread manager
-                    if let threadId = self.threadId, let callback = self.onMessageAdded {
-                        Task {
-                            await callback(threadId, disconnectMessage)
+                    // Update status
+                    self.remoteInferenceStatus = "Connection lost"
+                    
+                    // Optionally show a message to the user
+                    if !self.messages.isEmpty {
+                        let disconnectMessage = ChatMessage(
+                            content: "📱 Remote device disconnected. Switched to local inference.",
+                            isUser: false
+                        )
+                        self.messages.append(disconnectMessage)
+                        
+                        // Notify thread manager
+                        if let threadId = self.threadId, let callback = self.onMessageAdded {
+                            Task {
+                                await callback(threadId, disconnectMessage)
+                            }
                         }
                     }
                 }
+            } else {
+                print("DEBUG: Device connection restored, was temporarily disconnected")
             }
         }
         #endif

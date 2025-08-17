@@ -65,6 +65,12 @@ class MultipeerManager: NSObject, ObservableObject {
         session.disconnect()
     }
     
+    // Override point for subclasses to handle connection state changes
+    @objc @MainActor
+    func handlePeerConnectionStateChange(_ peerID: MCPeerID, state: MCSessionState) {
+        // Default implementation does nothing
+    }
+    
     // MARK: - Message Handler Setup
     private func setupMessageHandlers() {
         messageHandlers[.ping] = { [weak self] _, peer in
@@ -269,9 +275,15 @@ extension MultipeerManager: MCSessionDelegate {
                 connectionStatus = .connected
                 print("MultipeerManager: Connected to \(peerID.displayName)")
                 
+                // Additional processing for subclasses in MainActor context
+                handlePeerConnectionStateChange(peerID, state: state)
+                
             case .connecting:
                 connectionStatus = .connecting
                 print("MultipeerManager: Connecting to \(peerID.displayName)")
+                
+                // Additional processing for subclasses in MainActor context
+                handlePeerConnectionStateChange(peerID, state: state)
                 
             case .notConnected:
                 connectedPeers.removeAll { $0 == peerID }
@@ -280,11 +292,15 @@ extension MultipeerManager: MCSessionDelegate {
                 }
                 print("MultipeerManager: Disconnected from \(peerID.displayName)")
                 
+                // Additional processing for subclasses in MainActor context
+                handlePeerConnectionStateChange(peerID, state: state)
+                
             @unknown default:
                 print("MultipeerManager: Unknown connection state")
             }
         }
     }
+    
     
     nonisolated func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
         do {
@@ -321,16 +337,58 @@ extension MultipeerManager: MCSessionDelegate {
 
 // MARK: - MCNearbyServiceBrowserDelegate
 extension MultipeerManager: MCNearbyServiceBrowserDelegate {
+    // Dictionary to track unique peers across all browser instances
+    // Using peerID.displayName as the key to ensure uniqueness
+    private static var discoveredPeers = [String: Date]()
+    
+    // Minimum time to consider a re-discovery of the same device
+    private static let rediscoveryThreshold: TimeInterval = 10.0 // 10 seconds
+    
     @objc nonisolated func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
         print("DEBUG: BROWSER DELEGATE - foundPeer: \(peerID.displayName)")
         print("DEBUG: Discovery info: \(info ?? [:])")
         
+        // Check if we have valid discovery info before proceeding
+        guard let info = info, 
+              info["capability"] == "mlx",
+              !info["models", default: ""].isEmpty else {
+            print("DEBUG: Skipping peer with invalid discovery info")
+            return
+        }
+        
+        // For all browser events, use a single synchronized block to modify availableDevices
         Task { @MainActor in
+            // Get current time for discovery tracking
+            let now = Date()
+            let deviceName = peerID.displayName
+            
+            // Create a unique identifier combining name and discovery info hash
+            // This helps distinguish between devices with the same name but different info
+            let infoHash = info.hashValue
+            let uniqueKey = "\(deviceName)-\(infoHash)"
+            
+            // Check if we've already discovered this peer recently
+            if let lastDiscovery = Self.discoveredPeers[uniqueKey] {
+                let timeSinceLastDiscovery = now.timeIntervalSince(lastDiscovery)
+                
+                // Only process if enough time has passed since the last discovery
+                if timeSinceLastDiscovery < Self.rediscoveryThreshold {
+                    print("DEBUG: Ignoring duplicate discovery of \(deviceName) (last seen \(Int(timeSinceLastDiscovery))s ago)")
+                    return
+                }
+                
+                print("DEBUG: Re-processing peer \(deviceName) after \(Int(timeSinceLastDiscovery))s")
+            }
+            
+            // Update the last discovery time for this peer with its unique key
+            Self.discoveredPeers[uniqueKey] = now
+            
+            // Always add to available devices to ensure it's included in child class processing
             if !availableDevices.contains(peerID) {
                 availableDevices.append(peerID)
-                print("MultipeerManager: Found peer: \(peerID.displayName)")
+                print("MultipeerManager: Found peer: \(deviceName)")
             } else {
-                print("DEBUG: Peer \(peerID.displayName) already in availableDevices")
+                print("DEBUG: Peer \(deviceName) already in availableDevices")
             }
         }
     }
@@ -339,6 +397,16 @@ extension MultipeerManager: MCNearbyServiceBrowserDelegate {
         print("DEBUG: BROWSER DELEGATE - lostPeer: \(peerID.displayName)")
         
         Task { @MainActor in
+            // Remove from discovery tracking to allow rediscovery if it comes back
+            // We need to remove all entries that start with this device name
+            let deviceName = peerID.displayName
+            
+            // Remove all entries for this device, regardless of info hash
+            Self.discoveredPeers = Self.discoveredPeers.filter { key, _ in
+                !key.starts(with: "\(deviceName)-")
+            }
+            
+            // Remove from available devices list
             availableDevices.removeAll { $0 == peerID }
             print("MultipeerManager: Lost peer: \(peerID.displayName)")
         }
