@@ -248,72 +248,17 @@ class ChatManager: ObservableObject {
         do {
             print("DEBUG: Starting remote MLX inference...")
             print("DEBUG: Model identifier: \(modelId)")
-            print("DEBUG: Connected peers before inference: \(networkManager.connectedPeers.map { $0.displayName })")
             
-            // Add connection check timeout to run in parallel with inference
-            let connectionCheckTask = Task {
-                // Check every 5 seconds if we're still connected during long inferences
-                while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
-                    print("DEBUG: Connection check during inference - still connected: \(networkManager.connectedPeers.contains(remoteDevice.peerID))")
-                }
-            }
-            
-            // Register the request in both tracking systems
-            // IMPORTANT: We'll use the same request ID that will be created in performRemoteInference
-            // First, get the ID from the macOSMLXNetworkManager before creating the request
-            let requestId = UUID()
-            print("DEBUG: Creating inference request with ID: \(requestId.uuidString)")
-            
-            // Important: Add the request to MultipeerManager's pendingRequests before sending
-            // This handler will capture the actual response and display it in debug logs
-            networkManager.pendingRequests[requestId] = { response in
-                print("DEBUG: MultipeerManager handler triggered for request ID: \(requestId.uuidString)")
-                print("DEBUG: ===== INFERENCE RESPONSE FROM iOS =====")
-                print("DEBUG: Response content length: \(response.content.count)")
-                print("DEBUG: Response content: \"\(response.content)\"")
-                print("DEBUG: Inference time: \(String(describing: response.inferenceTime))")
-                print("DEBUG: ===== END RESPONSE =====")
-                // The response will be processed and returned via the continuation
-            }
-            
-            print("DEBUG: Added request to MultipeerManager.pendingRequests, count: \(networkManager.pendingRequests.count)")
-            
-            // Create the request with our custom ID to ensure consistent tracking
+            // Create the request. Let the initializer handle the UUID.
             let inferenceRequest = MLXInferenceRequest(
                 prompt: content,
                 modelIdentifier: modelId,
-                parameters: InferenceParameters(),
-                id: requestId
+                parameters: InferenceParameters()
             )
-            
-            // IMPORTANT: Instead of using our UUID directly, we'll use the one from performRemoteInference
-            // But we'll register a special handler to capture responses from iOS for either ID
-            
-            // Add a special request handler to check for any response that might come in
-            networkManager.messageHandlers[.inferenceResponse] = { message, peer in
-                if case .inferenceResponse(let response) = message {
-                    print("DEBUG: SPECIAL HANDLER: Received direct inference response from \(peer.displayName)")
-                    print("DEBUG: Response request ID: \(response.requestId.uuidString)")
-                    print("DEBUG: Response content: \"\(response.content)\"")
-                    
-                    // Look for handlers in both systems
-                    if networkManager.pendingRequests[response.requestId] != nil {
-                        print("DEBUG: Found handler in pendingRequests, will process automatically")
-                    } else {
-                        print("DEBUG: No handler in pendingRequests for ID: \(response.requestId.uuidString)")
-                    }
-                    
-                    // Just let the normal system handle it
-                    print("DEBUG: Letting MultipeerManager handle the response normally")
-                }
-            }
-            
-            // Now let the system perform inference using our pre-created request with consistent ID
+
+            // Simply call the async function and await the string response.
+            // The network manager will handle the request/response lifecycle internally.
             let response = try await networkManager.performRemoteInference(request: inferenceRequest)
-            
-            // Cancel the connection check
-            connectionCheckTask.cancel()
             
             print("DEBUG: Remote inference completed, response length: \(response.count)")
             print("DEBUG: Response content: \"\(response)\"")
