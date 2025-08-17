@@ -50,14 +50,14 @@ class iOSMLXNetworkManager: MultipeerManager {
     private func setupConnectionHandlers() {
         // Override the peer connection state change handler
         // to add iOS-specific connection handling
-        messageHandlers[.ping] = { [weak self] _, peer in
-            print("DEBUG: Received ping from \(peer.displayName), sending pong response")
-            self?.sendMessage(.pong, to: peer)
-        }
+//        messageHandlers[.ping] = { [weak self] _, peer in
+//            print("DEBUG: Received ping from \(peer.displayName), sending pong response")
+//            self?.sendMessage(.pong, to: peer)
+//        }
         
-        messageHandlers[.pong] = { [weak self] _, peer in
-            print("DEBUG: Received pong response from \(peer.displayName)")
-        }
+//        messageHandlers[.pong] = { [weak self] _, peer in
+//            print("DEBUG: Received pong response from \(peer.displayName)")
+//        }
     }
     
     // Override the connection state handling to keep track of connected peers

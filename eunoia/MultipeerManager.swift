@@ -131,7 +131,7 @@ class MultipeerManager: NSObject, ObservableObject {
         // Send ping to maintain connection
         for peer in connectedPeers {
             // Only send if we haven't sent one recently (last 4 seconds)
-            let shouldSend = lastSentTime[peer] == nil || 
+            let shouldSend = lastSentTime[peer] == nil ||
                 now.timeIntervalSince(lastSentTime[peer]!) > 4.0
             
             if shouldSend {
@@ -141,7 +141,7 @@ class MultipeerManager: NSObject, ObservableObject {
             }
             
             // Check if we received something recently (last 15 seconds)
-            if let lastReceived = lastReceivedTime[peer], 
+            if let lastReceived = lastReceivedTime[peer],
                now.timeIntervalSince(lastReceived) > 15.0 {
                 print("DEBUG: WARNING - No response from \(peer.displayName) in \(Int(now.timeIntervalSince(lastReceived)))s, connection may be stale")
             }
@@ -387,38 +387,12 @@ class MultipeerManager: NSObject, ObservableObject {
     
     private func handleInferenceResponse(_ response: MLXInferenceResponse) {
         print("DEBUG: MultipeerManager.handleInferenceResponse for request: \(response.requestId.uuidString)")
-        print("DEBUG: Current pendingRequests count: \(pendingRequests.count)")
-        print("DEBUG: Current pendingRequests IDs: \(pendingRequests.keys.map { $0.uuidString })")
-        print("DEBUG: Response content (first 50 chars): \"\(response.content.prefix(50))...\"")
-        
-        // Check if we have a handler in MultipeerManager
-        if let handler = pendingRequests[response.requestId] {
-            print("DEBUG: Found handler for request ID: \(response.requestId.uuidString), executing handler")
-            // Remove after successful execution
-            pendingRequests.removeValue(forKey: response.requestId)
-            print("DEBUG: Calling handler for response from MultipeerManager pendingRequests")
+        if let handler = pendingRequests.removeValue(forKey: response.requestId) {
+            print("DEBUG: Found and executed handler from MultipeerManager for request ID: \(response.requestId.uuidString)")
             handler(response)
-            return
+        } else {
+            print("DEBUG: WARNING - No handler found in MultipeerManager for inference response with request ID: \(response.requestId.uuidString). This may be expected if a subclass is handling it.")
         }
-        
-        // If there's exactly one pending request, use it regardless of ID (likely ID mismatch issue)
-        if pendingRequests.count == 1 {
-            print("DEBUG: No exact match but found exactly ONE pending request - assuming it's a match")
-            let singleRequest = pendingRequests.first!
-            print("DEBUG: Using request ID: \(singleRequest.key.uuidString) as fallback match")
-            let handler = singleRequest.value
-            pendingRequests.removeValue(forKey: singleRequest.key)
-            print("DEBUG: Calling handler for response from MultipeerManager pendingRequests (fallback)")
-            handler(response)
-            return
-        }
-        
-        print("DEBUG: WARNING - No handler found for inference response with request ID: \(response.requestId.uuidString)")
-        print("DEBUG: Current pendingRequests IDs: \(pendingRequests.keys.map { $0.uuidString })")
-        
-        // If no handler found in MultipeerManager, let subclass handle it
-        // Intentionally not removing the request here to allow macOSMLXNetworkManager to handle it
-        // This allows the response to be processed by either handler, whichever exists
     }
     
     // MARK: - Chunked Message Implementation
@@ -547,7 +521,7 @@ class MultipeerManager: NSObject, ObservableObject {
             sendMessage(.responseAck(finalAck), to: peer)
             
             // Handle the complete response
-            handleInferenceResponse(response)
+            handleReceivedMessage(.inferenceResponse(response), from: peer)
             
             // Clean up received chunks
             receivedChunks.removeValue(forKey: chunk.messageId)
@@ -578,7 +552,7 @@ class MultipeerManager: NSObject, ObservableObject {
             // Cancel retry timer for this chunk
             let timerKey = "\(ack.messageId)-\(chunkIndex)"
             chunkRetryTimers[timerKey]?.invalidate()
-            chunkRetryTimers.removeValue(forKey: timerKey)
+            chunkRetryTimers.removeValue(forKey: timerKey) // FIX: Changed 'key' to 'timerKey'
             
             // Check if all chunks have been acknowledged
             let allAcknowledged = !chunkAcks.values.contains(false)
@@ -655,53 +629,15 @@ extension MultipeerManager: MCSessionDelegate {
     
     
     nonisolated func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        print("DEBUG: Received message data of size \(data.count) bytes from \(peerID.displayName)")
         do {
             let message = try MLXNetworkMessage.fromData(data)
-            print("DEBUG: Successfully decoded message of type: \(message.messageType)")
-            
             Task { @MainActor in
-                // Handle inference responses specially
-                if case .inferenceResponse(let response) = message {
-                    print("DEBUG: Received direct inference response for request ID: \(response.requestId.uuidString)")
-                    print("DEBUG: Response content length: \(response.content.count), isComplete: \(response.isComplete)")
-                    print("DEBUG: Response content: \"\(response.content.prefix(50))...\"")
-                    print("DEBUG: Inference time reported: \(String(describing: response.inferenceTime))")
-                    
-                    // Send acknowledgment for the direct (non-chunked) response
-                    let ack = ResponseAcknowledgment(
-                        requestId: response.requestId,
-                        messageId: response.messageId,
-                        isComplete: true
-                    )
-                    sendMessage(.responseAck(ack), to: peerID)
-                    
-                    // CRITICAL: Save the handler before trying to use it, as handlers might remove themselves
-                    // Check if we have a handler in pendingRequests
-                    let handler = pendingRequests[response.requestId]
-                    
-                    // Use the custom handler first if available
-                    if let customHandler = messageHandlers[.inferenceResponse] {
-                        print("DEBUG: Using custom inference response handler")
-                        customHandler(message, peerID)
-                    }
-                    
-                    // Now use the saved handler if available - this ensures the completion gets called
-                    if let handler = handler {
-                        print("DEBUG: DIRECT EXECUTION: Found handler in pendingRequests, executing directly")
-                        pendingRequests.removeValue(forKey: response.requestId)
-                        print("DEBUG: Executing handler for response ID: \(response.requestId.uuidString)")
-                        handler(response)
-                    } else {
-                        // Fall back to default handler
-                        print("DEBUG: Using default inference response handler")
-                        handleInferenceResponse(response)
-                    }
-                } else if case .inferenceRequest(let request) = message {
-                    print("DEBUG: Received inference request with ID: \(request.id.uuidString)")
-                    handleReceivedMessage(message, from: peerID)
+                // If a custom handler is registered for the specific message type, use it exclusively.
+                if let customHandler = messageHandlers[message.messageType] {
+                    customHandler(message, peerID)
                 } else {
-                    print("DEBUG: Received other message type: \(message.messageType)")
+                    // Otherwise, perform default processing.
+                    print("DEBUG: Using default handler for message type \(message.messageType)")
                     handleReceivedMessage(message, from: peerID)
                 }
             }
@@ -709,11 +645,6 @@ extension MultipeerManager: MCSessionDelegate {
             Task { @MainActor in
                 lastError = "Failed to decode message: \(error.localizedDescription)"
                 print("MultipeerManager: Error decoding message: \(error)")
-                print("DEBUG: Detailed error info: \(error)")
-                if let nsError = error as NSError? {
-                    print("DEBUG: Error domain: \(nsError.domain), code: \(nsError.code)")
-                    print("DEBUG: User info: \(nsError.userInfo)")
-                }
             }
         }
     }
@@ -745,7 +676,7 @@ extension MultipeerManager: MCNearbyServiceBrowserDelegate {
         print("DEBUG: Discovery info: \(info ?? [:])")
         
         // Check if we have valid discovery info before proceeding
-        guard let info = info, 
+        guard let info = info,
               info["capability"] == "mlx",
               !info["models", default: ""].isEmpty else {
             print("DEBUG: Skipping peer with invalid discovery info")

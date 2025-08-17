@@ -571,14 +571,14 @@ class ChatManager: ObservableObject {
             return
         }
         
-        print("DEBUG: Checking connection health for device: \(remoteDevice.name)")
+//        print("DEBUG: Checking connection health for device: \(remoteDevice.name)")
         
         // Check if the device is still in connectedPeers - more reliable than remoteDevice.isConnected
         // which might not be updated immediately
         let isActuallyConnected = networkManager.connectedPeers.contains(remoteDevice.peerID)
         
         if isActuallyConnected {
-            print("DEBUG: Device \(remoteDevice.name) is still connected")
+//            print("DEBUG: Device \(remoteDevice.name) is still connected")
             
             // Send a ping to keep the connection alive and verify it's responsive
             networkManager.sendMessage(.ping, to: remoteDevice.peerID)
