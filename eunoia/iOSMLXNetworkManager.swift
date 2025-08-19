@@ -288,66 +288,40 @@ class iOSMLXNetworkManager: MultipeerManager {
         )
     }
     
+    /// Estimates the token count of a string using a simple heuristic.
+    /// For English text, 1 token is approximately 4 characters.
+    private func estimateTokenCount(for text: String) -> Int {
+        // A simple heuristic - 1 token is approximately 4 characters for English text
+        // This is a rough estimate but should work for our context window management purposes
+        let characterCount = text.count
+        return max(1, Int(Double(characterCount) / 4.0))
+    }
+    
     private func performMLXInference(
         prompt: String,
         model: MLXModel,
         parameters: InferenceParameters,
         manager: ChatManager
     ) async throws -> String {
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            Task {
-                // Create a temporary message to trigger inference
-                let tempMessage = ChatMessage(content: prompt, isUser: true)
-                manager.messages.append(tempMessage)
-                
-                // Create model configuration similar to ChatManager
-                let modelConfig: ModelConfiguration
-                if model.identifier.contains("gemma-3") {
-                    modelConfig = ModelConfiguration(
-                        id: model.identifier,
-                        extraEOSTokens: ["<end_of_turn>"]
-                    )
-                } else if model.identifier.contains("SmolLM") {
-                    modelConfig = ModelConfiguration(
-                        id: model.identifier,
-                        extraEOSTokens: ["<|im_end|>"]
-                    )
-                } else {
-                    modelConfig = ModelConfiguration(id: model.identifier)
-                }
-                
-                do {
-                    // Load model and create session
-                    let loadedModel = try await loadModel(configuration: modelConfig)
-                    let chatSession = ChatSession(loadedModel)
-                    
-                    // Format prompt according to model requirements
-                    let formattedPrompt: String
-                    if parameters.useModelSpecificFormatting && model.identifier.contains("SmolLM") {
-                        formattedPrompt = "<|im_start|>user\n\(prompt)<|im_end|>\n<|im_start|>assistant\n"
-                    } else {
-                        formattedPrompt = prompt
-                    }
-                    
-                    // Perform inference with timeout
-                    let response = try await withTimeout(seconds: MLXServiceInfo.inferenceTimeout) {
-                        return try await chatSession.respond(to: formattedPrompt)
-                    }
-                    
-                    let cleanResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
-                    continuation.resume(returning: cleanResponse)
-                    
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-                
-                // Clean up the temporary message
-                if let index = manager.messages.firstIndex(where: { $0.id == tempMessage.id }) {
-                    manager.messages.remove(at: index)
-                }
-            }
+        guard let chatSession = manager.chatSession else {
+            // This should not happen if performInference is called before.
+            throw MLXNetworkError(code: .modelNotLoaded, message: "Model is not loaded in ChatManager's session.", requestId: nil)
         }
+    
+        // Format prompt according to model requirements
+        let formattedPrompt: String
+        if parameters.useModelSpecificFormatting && model.identifier.contains("SmolLM") {
+            formattedPrompt = "<|im_start|>user\n\(prompt)<|im_end|>\n<|im_start|>assistant\n"
+        } else {
+            formattedPrompt = prompt
+        }
+        
+        // Perform inference with timeout
+        let response = try await withTimeout(seconds: MLXServiceInfo.inferenceTimeout) {
+            return try await chatSession.respond(to: formattedPrompt)
+        }
+        
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     // MARK: - Device Status

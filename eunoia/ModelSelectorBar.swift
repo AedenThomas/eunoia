@@ -1,4 +1,5 @@
 import SwiftUI
+import MultipeerConnectivity
 #if os(macOS)
 import AppKit
 #endif
@@ -9,6 +10,7 @@ struct ModelSelectorBar: View {
     @ObservedObject private var downloadModalManager = DownloadModalManager.shared
     @State private var showingModelDropdown = false
     @State private var isHovered = false
+    @State private var expandedDevicePeerID: MCPeerID? = nil
     
     private let models = ModelRegistry.availableModels
     
@@ -37,6 +39,13 @@ struct ModelSelectorBar: View {
     
     var hasAvailableOptions: Bool {
         hasDownloadedModels || !availableRemoteDevices.isEmpty
+    }
+
+    private func prettify(identifier: String) -> String {
+        if let model = ModelRegistry.availableModels.first(where: { $0.identifier == identifier }) {
+            return model.name
+        }
+        return identifier.split(separator: "/").last?.replacingOccurrences(of: "-", with: " ").capitalized ?? identifier
     }
     
     var body: some View {
@@ -78,6 +87,11 @@ struct ModelSelectorBar: View {
                                     Text(remoteDevice.name)
                                         .font(.system(.body, design: .default, weight: .medium))
                                         .foregroundColor(Color.primary)
+                                }
+                                if let modelId = chatManager.selectedRemoteModelIdentifier {
+                                    Text("Using: \(prettify(identifier: modelId))")
+                                        .font(.system(.caption, design: .default, weight: .regular))
+                                        .foregroundColor(Color.secondary)
                                 }
                             } else {
                                 Text("Remote device connecting...")
@@ -223,11 +237,19 @@ struct ModelSelectorBar: View {
                     ForEach(availableRemoteDevices) { device in
                         RemoteDeviceRow(
                             device: device,
-                            isSelected: chatManager.isUsingRemoteInference && chatManager.selectedRemoteDevice?.id == device.id,
-                            action: {
+                            chatManager: chatManager,
+                            isExpanded: expandedDevicePeerID == device.peerID,
+                            onExpand: {
+                                if expandedDevicePeerID == device.peerID {
+                                    expandedDevicePeerID = nil
+                                } else {
+                                    expandedDevicePeerID = device.peerID
+                                }
+                            },
+                            onSelectModel: { modelIdentifier in
                                 // First select the device in the network manager to establish connection
                                 if let networkManager = chatManager.getNetworkManager() as? macOSMLXNetworkManager {
-                                    print("DEBUG: Starting remote device selection process")
+                                    print("DEBUG: Starting remote device selection process with model: \(modelIdentifier)")
                                     
                                     // Clear any existing selected model first
                                     chatManager.selectedModel = nil
@@ -235,31 +257,25 @@ struct ModelSelectorBar: View {
                                     // This will connect to the device if not already connected
                                     networkManager.selectRemoteDevice(device)
                                     
-                                    // Wait a bit longer for connection to establish before enabling remote inference
-                                    // Increasing from 2.0 to 5.0 seconds to ensure connection is stable
+                                    // Wait for connection to establish before enabling remote inference
+                                    // Using 5.0 seconds to ensure connection is stable
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
                                         print("DEBUG: Connection delay completed, verifying connection...")
                                         
                                         // First verify the device is still connected
                                         if networkManager.connectedPeers.contains(device.peerID) {
-                                            print("DEBUG: Connection verified, enabling remote inference")
+                                            print("DEBUG: Connection verified, enabling remote inference with model: \(modelIdentifier)")
                                             
                                             // Update the device to reflect it's actually connected
                                             networkManager.updateDeviceConnectionStatus(device.peerID, isConnected: true)
                                             
                                             // Get the updated device from the manager
                                             if let updatedDevice = networkManager.discoveredDevices.first(where: { $0.peerID == device.peerID }) {
-                                                // Set explicit state immediately
-                                                chatManager.isUsingRemoteInference = true
-                                                chatManager.selectedRemoteDevice = updatedDevice
-                                                
                                                 // Then call enableRemoteInference which will properly update all related state
-                                                chatManager.enableRemoteInference(updatedDevice)
-                                                
-                                                // Make sure local model selection is cleared to avoid confusion
-                                                chatManager.selectedModel = nil
+                                                chatManager.enableRemoteInference(updatedDevice, modelIdentifier: modelIdentifier)
                                             } else {
                                                 print("DEBUG: ERROR - Updated device not found after connection!")
+                                                chatManager.enableRemoteInference(nil)
                                             }
                                         } else {
                                             print("DEBUG: ERROR - Device connection failed, not enabling remote inference")
@@ -268,23 +284,15 @@ struct ModelSelectorBar: View {
                                             chatManager.enableRemoteInference(nil)
                                             chatManager.selectedModel = nil
                                         }
-                                        
-                                        print("DEBUG: Remote device selected and remote inference enabled")
-                                        print("DEBUG: Final state - isUsingRemoteInference: \(chatManager.isUsingRemoteInference)")
-                                        print("DEBUG: Final state - selectedRemoteDevice: \(chatManager.selectedRemoteDevice?.name ?? "nil")")
-                                        print("DEBUG: Final state - selectedModel: \(chatManager.selectedModel?.name ?? "nil")")
-                                        
-                                        // Hide the model selection dropdown after selection
-                                        withAnimation {
-                                            showingModelDropdown = false
-                                        }
                                     }
                                 }
                                 
-                                withAnimation(.easeOut(duration: 0.3)) {
+                                withAnimation {
                                     showingModelDropdown = false
+                                    expandedDevicePeerID = nil
                                 }
-                            }
+                            },
+                            prettify: prettify
                         )
                     }
                 }
@@ -458,6 +466,57 @@ struct ModelDownloadModal: View {
 
 struct RemoteDeviceRow: View {
     let device: RemoteMLXDevice
+    @ObservedObject var chatManager: ChatManager
+    let isExpanded: Bool
+    let onExpand: () -> Void
+    let onSelectModel: (String) -> Void
+    let prettify: (String) -> String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button(action: onExpand) {
+                HStack(spacing: 12) {
+                    Image(systemName: device.statusIcon)
+                        .font(.system(size: 14))
+                        .foregroundColor(device.isConnected ? Color.green : Color.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(device.name)
+                            .font(.system(.body, design: .default, weight: .medium))
+                            .foregroundColor(Color.primary)
+                        
+                        Text("\(device.availableModels.count) models available")
+                            .font(.system(.caption, design: .default, weight: .regular))
+                            .foregroundColor(Color.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            if isExpanded {
+                ForEach(device.availableModels, id: \.self) { modelIdentifier in
+                    RemoteModelRow(
+                        modelIdentifier: modelIdentifier,
+                        prettifiedName: prettify(modelIdentifier),
+                        isSelected: chatManager.isUsingRemoteInference &&
+                                    chatManager.selectedRemoteDevice?.peerID == device.peerID &&
+                                    chatManager.selectedRemoteModelIdentifier == modelIdentifier,
+                        action: { onSelectModel(modelIdentifier) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+struct RemoteModelRow: View {
+    let modelIdentifier: String
+    let prettifiedName: String
     let isSelected: Bool
     let action: () -> Void
     
@@ -468,33 +527,15 @@ struct RemoteDeviceRow: View {
                     .font(.system(size: 16))
                     .foregroundColor(isSelected ? Color(hex: 0x007AFF) : Color.gray)
                 
-                Image(systemName: device.statusIcon)
-                    .font(.system(size: 14))
-                    .foregroundColor(device.isConnected ? Color.green : Color.orange)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(device.name)
-                        .font(.system(.body, design: .default, weight: .medium))
-                        .foregroundColor(Color.primary)
-                    
-                    Text("\(device.availableModels.count) models available")
-                        .font(.system(.caption, design: .default, weight: .regular))
-                        .foregroundColor(Color.secondary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(device.isConnected ? "Connected" : "Available")
-                        .font(.system(.caption2, design: .default, weight: .medium))
-                        .foregroundColor(device.isConnected ? Color.green : Color.orange)
-                }
+                Text(prettifiedName)
+                    .font(.system(.body, design: .default, weight: .regular))
+                    .foregroundColor(.primary)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .padding(.leading, 24) // Indent for hierarchy
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 }
 

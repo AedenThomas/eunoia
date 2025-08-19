@@ -43,6 +43,7 @@ class ChatManager: ObservableObject {
     @Published var selectedRemoteDevice: RemoteMLXDevice?
     @Published var isUsingRemoteInference = false
     @Published var remoteInferenceStatus = "Not connected"
+    @Published var selectedRemoteModelIdentifier: String?
     
     // Thread-specific properties
     var threadId: UUID?
@@ -50,7 +51,7 @@ class ChatManager: ObservableObject {
     
     private let downloadManager = ModelDownloadManager.shared
     private var loadedModel: ModelContext?
-    private var chatSession: ChatSession?
+    var chatSession: ChatSession? // Changed from private to internal
     private var generateTask: Task<Void, Never>?
     
     // Multipeer managers (platform-specific)
@@ -230,8 +231,8 @@ class ChatManager: ObservableObject {
             return
         }
         
-        // Get the model ID from either the local model or use a default from the remote device
-        let modelId = model?.identifier ?? selectedRemoteDevice?.availableModels.first ?? ""
+        // Use the explicitly selected remote model identifier
+        let modelId = selectedRemoteModelIdentifier ?? selectedRemoteDevice?.availableModels.first ?? ""
         if modelId.isEmpty {
             print("DEBUG: ERROR - No model ID available for remote inference")
             print("DEBUG: Local model: \(model?.identifier ?? "nil")")
@@ -296,10 +297,9 @@ class ChatManager: ObservableObject {
             
             // Get more detailed error info
             var errorDetails = error.localizedDescription
-            if let networkError = error as? MLXNetworkError {
-                errorDetails = "\(networkError.code.rawValue): \(networkError.message)"
-                print("DEBUG: MLXNetworkError details - Code: \(networkError.code.rawValue), Message: \(networkError.message)")
-            }
+            let nsError = error as NSError
+            errorDetails = "\(nsError.code): \(nsError.localizedDescription)"
+            print("DEBUG: Error details - Code: \(nsError.code), Message: \(nsError.localizedDescription)")
             
             await handleRemoteInferenceFailure(
                 content: content,
@@ -367,23 +367,91 @@ class ChatManager: ObservableObject {
             return
         }
         
-        guard let session = chatSession else {
-            await handleInferenceError("Model is not loaded. Please try selecting the model again.")
+        guard let loadedModel = self.loadedModel else {
+            await handleInferenceError("Model context is not loaded. Please try selecting the model again.")
             return
         }
+        
+        // Always create a fresh chat session for each inference to prevent shape broadcasting errors
+        // This ensures completely isolated inference for each request
+        print("DEBUG: Creating fresh ChatSession to avoid shape broadcasting errors")
+        let session = ChatSession(loadedModel)
+        self.chatSession = session
         
         // Start local MLX text generation
         do {
             print("DEBUG: Starting local MLX text generation...")
             print("DEBUG: Model identifier: \(model.identifier)")
-            print("DEBUG: ChatSession exists: true")
+            print("DEBUG: Using fresh ChatSession for each inference to avoid state contamination")
             
             // Try a simple test first - see if the model can do basic operations
             let testArray = MLXArray([1.0, 2.0, 3.0])
             print("DEBUG: Test MLX array: \(testArray)")
+            print("DEBUG: Content length: \(content.count) characters, estimated tokens: \(estimateTokenCount(for: content))")
+            print("DEBUG: Previous message count: \(messages.count - 1)")
+            
+            // Diagnostic info about previous messages
+            if messages.count > 1 {
+                let previousMessages = messages.dropLast()
+                print("DEBUG: Total tokens in previous messages: \(totalTokenCount(for: Array(previousMessages)))")
+                if let lastAssistantMsg = previousMessages.last(where: { !$0.isUser }) {
+                    print("DEBUG: Last assistant response: \(lastAssistantMsg.content.count) chars, ~\(estimateTokenCount(for: lastAssistantMsg.content)) tokens")
+                }
+            }
             
             // Use ChatSession to generate response - fixed with proper ModelConfiguration
             print("DEBUG: About to call session.respond(to:)")
+            
+            // Enhanced context detection for better shape error prevention
+            // First, determine if the current message is a math question
+            let isMathQuestion = content.range(of: "[0-9][+\\-*/][0-9]", options: .regularExpression) != nil
+            
+            // Check if there's a significant length difference that could cause shape issues
+            let isLongContent = content.count > 100
+            let hasPreviousLongContent = messages.filter { $0.isUser && $0.content.count > 100 }.count > 0
+            
+            // Detect math context in previous messages
+            let hasMathInHistory = messages.filter { 
+                $0.isUser && $0.content.range(of: "[0-9][+\\-*/][0-9]", options: .regularExpression) != nil 
+            }.count > 0
+            
+            // Estimate token counts to prevent context window overflows
+            let currentTokens = estimateTokenCount(for: content)
+            let historyTokens = totalTokenCount(for: messages)
+            let totalTokens = currentTokens + historyTokens
+            
+            // Determine if we're at risk of exceeding context window
+            let isContextTooLarge = totalTokens > Int(Double(maxContextTokens) * 0.9) // 90% of max context
+            
+            print("DEBUG: Context size check: current=\(currentTokens), history=\(historyTokens), total=\(totalTokens)/\(maxContextTokens)")
+            
+            // Determine if we need a session reset based on these context shifts:
+            // 1. From math to non-math questions (original fix)
+            // 2. From non-math to math questions (new fix for the current issue)
+            // 3. Between short and long content (which can trigger tensor shape issues)
+            // 4. When the context size is getting too large (new size-based fix)
+            let needsSessionReset = (isMathQuestion && !hasMathInHistory && messages.count > 0) || // Non-math to math
+                                   (!isMathQuestion && hasMathInHistory && messages.count > 0) || // Math to non-math 
+                                   (isLongContent && !hasPreviousLongContent && messages.count > 1) || // Short to long
+                                   (!isLongContent && hasPreviousLongContent && messages.count > 1) || // Long to short
+                                   isContextTooLarge // Context window getting too large
+            
+            // Reset session if we detect any significant context shift
+            if needsSessionReset {
+                print("DEBUG: Detected significant context shift or large context - creating new chat session")
+                print("DEBUG: Context shift details - isMath: \(isMathQuestion), hadMath: \(hasMathInHistory), isLong: \(isLongContent), hadLong: \(hasPreviousLongContent), isContextTooLarge: \(isContextTooLarge)")
+                
+                // Create a new chat session with the same model to reset internal state
+                do {
+                    guard let loadedModel = self.loadedModel else {
+                        throw NSError(domain: "ChatManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model not loaded"])
+                    }
+                    self.chatSession = ChatSession(loadedModel)
+                    print("DEBUG: Successfully reset chat session to handle context shift or large context")
+                } catch {
+                    print("DEBUG: Failed to reset chat session: \(error)")
+                }
+            }
             
             // Format the prompt according to model requirements
             let formattedPrompt: String
@@ -391,6 +459,98 @@ class ChatManager: ObservableObject {
                 // SmolLM uses ChatML format with <|im_start|> and <|im_end|> tokens
                 formattedPrompt = "<|im_start|>user\n\(content)<|im_end|>\n<|im_start|>assistant\n"
                 print("DEBUG: SmolLM formatted prompt: \(formattedPrompt)")
+            } else if model.identifier.contains("gemma-3") {
+                // Gemma 3 uses specific formatting with <start_of_turn> and <end_of_turn> tokens
+                // Build conversation history correctly for multi-turn conversations
+                var conversationHistory = ""
+                
+                // Add previous turns if they exist (for multi-turn conversations)
+                // Start with the most recent message and work backwards
+                let messageHistory = messages.dropLast() // Exclude current user message
+                
+                // Rather than trying to pair messages (which can get out of sync),
+                // rebuild the conversation strictly alternating user/assistant messages
+                var orderedMessages: [ChatMessage] = []
+                
+                // First, extract all messages in order, grouped by user/assistant
+                var userMessages: [ChatMessage] = []
+                var assistantMessages: [ChatMessage] = []
+                
+                for message in messageHistory {
+                    if message.isUser {
+                        userMessages.append(message)
+                    } else {
+                        assistantMessages.append(message)
+                    }
+                }
+                
+                // Initialize counters for token management
+                var currentTokenCount = 0
+                var tokensForCurrentMessage = estimateTokenCount(for: content)
+                var maxHistoryTokens = maxContextTokens - tokensForCurrentMessage
+                
+                // Reserve 20% of the context window for the model's response
+                maxHistoryTokens = Int(Double(maxHistoryTokens) * 0.8)
+                
+                // Only add messages until we hit our token limit, starting from most recent
+                var messagesWithinTokenLimit: [ChatMessage] = []
+                
+                // Create pairs starting from the most recent and work backwards
+                // Limit to at most 2 conversation turns (2 pairs) to prevent shape mismatches
+                let totalPairs = min(2, min(userMessages.count, assistantMessages.count))
+                
+                // Start with the most recent messages and work backwards
+                for i in 0..<totalPairs {
+                    let userIndex = userMessages.count - 1 - i
+                    let assistantIndex = assistantMessages.count - 1 - i
+                    
+                    if userIndex >= 0 && assistantIndex >= 0 {
+                        let userMessage = userMessages[userIndex]
+                        let assistantMessage = assistantMessages[assistantIndex]
+                        
+                        // Calculate token counts for these messages
+                        let userTokens = estimateTokenCount(for: userMessage.content)
+                        let assistantTokens = estimateTokenCount(for: assistantMessage.content)
+                        let pairTokens = userTokens + assistantTokens
+                        
+                        // Check if adding this pair would exceed our limit
+                        if currentTokenCount + pairTokens <= maxHistoryTokens {
+                            messagesWithinTokenLimit.insert(userMessage, at: 0)
+                            messagesWithinTokenLimit.insert(assistantMessage, at: 1)
+                            currentTokenCount += pairTokens
+                        } else {
+                            // This pair would exceed our token limit, stop here
+                            print("DEBUG: Token limit reached at \(currentTokenCount)/\(maxHistoryTokens) tokens, stopped at conversation turn \(i + 1)")
+                            break
+                        }
+                    }
+                }
+                
+                // Use the token-limited messages
+                orderedMessages = messagesWithinTokenLimit
+                
+                print("DEBUG: Using \(orderedMessages.count) messages in context window with \(currentTokenCount) tokens")
+                print("DEBUG: Current prompt estimated at \(tokensForCurrentMessage) tokens")
+                print("DEBUG: Total context usage: \(currentTokenCount + tokensForCurrentMessage)/\(maxContextTokens) tokens")
+                
+                
+                // Build conversation history from ordered messages
+                for i in 0..<orderedMessages.count {
+                    let message = orderedMessages[i]
+                    if message.isUser {
+                        conversationHistory += "<start_of_turn>user\n\(message.content)<end_of_turn>\n"
+                    } else {
+                        conversationHistory += "<start_of_turn>model\n\(message.content)<end_of_turn>\n"
+                    }
+                }
+                
+                // Add the current user message
+                conversationHistory += "<start_of_turn>user\n\(content)<end_of_turn>\n"
+                // Add the start token for model response
+                conversationHistory += "<start_of_turn>model\n"
+                
+                formattedPrompt = conversationHistory
+                print("DEBUG: Gemma 3 formatted prompt with conversation history: \(formattedPrompt)")
             } else {
                 // Use default formatting for other models
                 formattedPrompt = content
@@ -399,6 +559,59 @@ class ChatManager: ObservableObject {
             // Add timeout to prevent indefinite hanging
             let response = try await withTimeout(seconds: 30.0) {
                 return try await session.respond(to: formattedPrompt)
+            }
+            
+            // Check for empty response and retry once
+            if response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("DEBUG: Detected empty response, retrying inference once")
+                let retryResponse = try await withTimeout(seconds: 30.0) {
+                    return try await session.respond(to: formattedPrompt)
+                }
+                
+                if !retryResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    print("DEBUG: Retry successful, got non-empty response")
+                    print("DEBUG: Local MLX generation completed, response: '\(retryResponse)'")
+                    await MainActor.run {
+                        if !Task.isCancelled {
+                            let aiMessage = ChatMessage(content: retryResponse.trimmingCharacters(in: .whitespacesAndNewlines), isUser: false)
+                            self.messages.append(aiMessage)
+                            
+                            // Notify thread manager of AI response
+                            if let threadId = self.threadId, let callback = self.onMessageAdded {
+                                Task {
+                                    await callback(threadId, aiMessage)
+                                }
+                            }
+                            
+                            self.currentResponse = ""
+                            self.isGenerating = false
+                            print("DEBUG: Local MLX generation completed successfully after retry")
+                        }
+                    }
+                    return
+                }
+                
+                // If retry still empty, return a fallback message
+                print("DEBUG: Retry also produced empty response, using fallback message")
+                let fallbackMessage = "I'm having trouble generating a response. Please try again or ask a different question."
+                await MainActor.run {
+                    if !Task.isCancelled {
+                        let aiMessage = ChatMessage(content: fallbackMessage, isUser: false)
+                        self.messages.append(aiMessage)
+                        
+                        // Notify thread manager of AI response
+                        if let threadId = self.threadId, let callback = self.onMessageAdded {
+                            Task {
+                                await callback(threadId, aiMessage)
+                            }
+                        }
+                        
+                        self.currentResponse = ""
+                        self.isGenerating = false
+                        print("DEBUG: Local MLX generation completed with fallback message")
+                    }
+                }
+                return
             }
             
             print("DEBUG: Local MLX generation completed, response: '\(response)'")
@@ -456,8 +669,8 @@ class ChatManager: ObservableObject {
     
     // MARK: - Remote Inference Management
     
-    func enableRemoteInference(_ device: RemoteMLXDevice?) {
-        print("DEBUG: enableRemoteInference called with device: \(device?.name ?? "nil")")
+    func enableRemoteInference(_ device: RemoteMLXDevice?, modelIdentifier: String? = nil) {
+        print("DEBUG: enableRemoteInference called with device: \(device?.name ?? "nil"), model: \(modelIdentifier ?? "default")")
         print("DEBUG: Device isConnected flag: \(device?.isConnected ?? false)")
         
         // Only set up remote inference if the device is actually connected
@@ -484,13 +697,19 @@ class ChatManager: ObservableObject {
             
             selectedRemoteDevice = device
             isUsingRemoteInference = true
+
+            let remoteModelToUse = modelIdentifier ?? device.availableModels.first
+            selectedRemoteModelIdentifier = remoteModelToUse
+            
+            let modelName = ModelRegistry.availableModels.first { $0.identifier == remoteModelToUse }?.name ?? remoteModelToUse?.split(separator: "/").last.map(String.init) ?? "Default"
             
             // Debug output to verify the state change
             print("DEBUG: isUsingRemoteInference set to \(isUsingRemoteInference)")
             print("DEBUG: selectedRemoteDevice set to \(selectedRemoteDevice?.name ?? "nil")")
-            
+            print("DEBUG: selectedRemoteModelIdentifier set to \(selectedRemoteModelIdentifier ?? "nil")")
+
             remoteInferenceStatus = "Connected to \(device.name)"
-            modelInfo = "Using remote device: \(device.name) for inference"
+            modelInfo = "Using \(modelName) on \(device.name)"
             
             // Ensure we clear the selectedModel to prevent confusion when using remote inference
             if selectedModel != nil {
@@ -513,6 +732,7 @@ class ChatManager: ObservableObject {
         print("DEBUG: Remote device not connected or not provided")
         selectedRemoteDevice = nil
         isUsingRemoteInference = false
+        selectedRemoteModelIdentifier = nil
         remoteInferenceStatus = "Not connected"
         
         // Update model info based on local model if available
@@ -738,6 +958,29 @@ class ChatManager: ObservableObject {
     func clearMessages() {
         messages.removeAll()
     }
+    
+    // MARK: - Token Management
+    
+    /// Estimates the token count of a string using a simple heuristic.
+    /// For English text, 1 token is approximately 4 characters.
+    private func estimateTokenCount(for text: String) -> Int {
+        // A simple heuristic - 1 token is approximately 4 characters for English text
+        // This is a rough estimate but should work for our context window management purposes
+        let characterCount = text.count
+        return max(1, Int(Double(characterCount) / 4.0))
+    }
+    
+    /// Returns the estimated total token count for a collection of messages
+    private func totalTokenCount(for messages: [ChatMessage]) -> Int {
+        return messages.reduce(0) { (total, message) in
+            return total + estimateTokenCount(for: message.content)
+        }
+    }
+    
+    /// Maximum token count allowed in the conversation window
+    /// Gemma 3 models have a context window of 2048, but we use a very conservative limit
+    /// to avoid any possibility of shape broadcasting errors
+    private let maxContextTokens = 1000
     
     // MARK: - Thread Management
     
